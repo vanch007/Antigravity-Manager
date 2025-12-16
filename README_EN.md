@@ -90,11 +90,14 @@ Turn your browser cookies into a standard OpenAI API!
 
 | Model ID | Description |
 | :--- | :--- |
-| **gemini-2.0-flash-exp** | **Recommended**. The latest SOTA model from Google. |
-| **gemini-1.5-pro** | Classic 1.5 Pro model, stable and reliable. |
-| **gemini-1.5-flash** | Cost-effective and fast. |
-| **gemini-3-pro-image** | **Image Generation**. Powered by Imagen 3. |
-| **claude-3-5-sonnet-20241022** | Anthropic's best model for coding. |
+| **gemini-2.5-flash** | **Flash 2.5**. Extremely fast and cost-effective. |
+| **gemini-2.5-flash-thinking** | **Flash Thinking**. Lightweight model with reasoning capabilities. |
+| **gemini-3-pro-high** | **Gemini 3 Pro**. Google's strongest reasoning model. |
+| **gemini-3-pro-low** | **Gemini 3 Pro (Low)**. Lower quota consumption version. |
+| **gemini-3-pro-image** | **Imagen 3**. Dedicated image generation model. |
+| **claude-sonnet-4-5** | **Claude 3.5 Sonnet**. Top choice for coding and logic. |
+| **claude-sonnet-4-5-thinking** | **Sonnet Thinking**. Sonnet with chain-of-thought enabled. |
+| **claude-opus-4-5-thinking** | **Opus Thinking**. Claude's most powerful thinking model. |
 
 > 💡 **Tip**: The proxy supports pass-through for all official Google/Anthropic model IDs.
 

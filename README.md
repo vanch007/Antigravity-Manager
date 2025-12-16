@@ -88,11 +88,14 @@
 
 | 模型 ID | 说明 |
 | :--- | :--- |
-| **gemini-2.0-flash-exp** | **推荐**。Google 最新一代极速模型，性能最强。 |
-| **gemini-1.5-pro** | 经典的 1.5 Pro 模型，稳定可靠。 |
-| **gemini-1.5-flash** | 1.5 代轻量级模型，速度极快。 |
-| **gemini-3-pro-image** | **绘图专用**。调用 Google Imagen 3 模型生成图片。 |
-| **claude-3-5-sonnet-20241022** | Anthropic 目前最强的代码/推理模型。 |
+| **gemini-2.5-flash** | **Flash 2.5**。极速响应，超高性价比。 |
+| **gemini-2.5-flash-thinking** | **Flash Thinking**。具备思考能力的轻量级模型。 |
+| **gemini-3-pro-high** | **Gemini 3 Pro**。Google 最强 reasoning 模型。 |
+| **gemini-3-pro-low** | **Gemini 3 Pro (Low)**。低配额消耗版。 |
+| **gemini-3-pro-image** | **Imagen 3**。绘图专用模型。 |
+| **claude-sonnet-4-5** | **Claude 3.5 Sonnet**。代码与逻辑推理首选。 |
+| **claude-sonnet-4-5-thinking** | **Sonnet Thinking**。开启了思维链的 Sonnet。 |
+| **claude-opus-4-5-thinking** | **Opus Thinking**。Claude 最强思维模型。 |
 
 > 💡 **提示**: 反代服务支持透传所有 Google/Anthropic 官方模型 ID，您可以直接使用官方文档中的任何模型名称。
 
