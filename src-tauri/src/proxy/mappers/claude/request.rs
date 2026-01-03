@@ -201,6 +201,31 @@ pub fn transform_claude_request_in(
         }
     }
 
+    // [FIX #295] If thinking enabled but no signature available for function calls,
+    // disable thinking to prevent Gemini 3 Pro rejection
+    if is_thinking_enabled {
+        let global_sig = get_thought_signature();
+        let has_function_calls = claude_req.messages.iter().any(|m| {
+            if let MessageContent::Array(blocks) = &m.content {
+                blocks
+                    .iter()
+                    .any(|b| matches!(b, ContentBlock::ToolUse { .. }))
+            } else {
+                false
+            }
+        });
+
+        if has_function_calls
+            && !has_valid_signature_for_function_calls(&claude_req.messages, &global_sig)
+        {
+            tracing::warn!(
+                "[Thinking-Mode] [FIX #295] No valid signature found for function calls. \
+                 Disabling thinking to prevent Gemini 3 Pro rejection."
+            );
+            is_thinking_enabled = false;
+        }
+    }
+
     // 4. Generation Config & Thinking (Pass final is_thinking_enabled)
     let generation_config = build_generation_config(claude_req, has_web_search_tool, is_thinking_enabled);
 
@@ -347,6 +372,42 @@ fn should_enable_thinking_by_default(model: &str) -> bool {
     false
 }
 
+/// Minimum length for a valid thought_signature
+const MIN_SIGNATURE_LENGTH: usize = 10;
+
+/// [FIX #295] Check if we have any valid signature available for function calls
+/// This prevents Gemini 3 Pro from rejecting requests due to missing thought_signature
+fn has_valid_signature_for_function_calls(
+    messages: &[Message],
+    global_sig: &Option<String>,
+) -> bool {
+    // 1. Check global store
+    if let Some(sig) = global_sig {
+        if sig.len() >= MIN_SIGNATURE_LENGTH {
+            return true;
+        }
+    }
+
+    // 2. Check if any message has a thinking block with valid signature
+    for msg in messages.iter().rev() {
+        if msg.role == "assistant" {
+            if let MessageContent::Array(blocks) = &msg.content {
+                for block in blocks {
+                    if let ContentBlock::Thinking {
+                        signature: Some(sig),
+                        ..
+                    } = block
+                    {
+                        if sig.len() >= MIN_SIGNATURE_LENGTH {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
 
 /// 构建 System Instruction (支持动态身份映射与 Prompt 隔离)
 fn build_system_instruction(system: &Option<SystemPrompt>, model_name: &str) -> Option<Value> {
