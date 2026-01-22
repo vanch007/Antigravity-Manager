@@ -213,12 +213,10 @@ print(response.choices[0].message.content)
 
 *   **Changelog**:
     *   **v3.3.49 (2026-01-22)**:
-        -   **[Core Fix] Thinking Block Order Correction in Streaming (Fix PR #949)**:
-            -   **Context**: Resolved 400 validation errors caused by disordered Thinking and text blocks in certain streaming outputs.
-            -   **Fix**: Optimized buffer logic in the streaming response collector to ensure correct sequencing and encapsulation of thinking content.
-        -   **[UX Optimization] Immediate Effect of Settings & Sync Strategy**:
-            -   **Instant Apply**: Fixed an issue where language and theme changes required manual saving. Adjustments now apply immediately across the UI and sync to global storage.
-            -   **State Sync**: Resolved conflicts between `App.tsx` and `Settings.tsx`, ensuring UI consistency during configuration loading.
+        -   **[UX Optimization] Immediate Effect of Settings (Fix PR #949)**:
+            -   **Instant Apply**: Fixed an issue where language changes required manual saving. Adjustments now apply immediately across the UI.
+        -   **[Core Fix] State Sync Strategy Update**:
+            -   **Consistency**: Improved the immediate application logic for themes and resolved conflicts between `App.tsx` and `Settings.tsx`, ensuring UI consistency during configuration loading.
     *   **v3.3.48 (2026-01-21)**:
         -   **[Core Fix] Windows Console Flashing Fix (Fix PR #933)**:
             -   **Problem**: On Windows, launching the application or executing background CLI commands would sometimes cause a command prompt window to briefly flash, disrupting the user experience.
