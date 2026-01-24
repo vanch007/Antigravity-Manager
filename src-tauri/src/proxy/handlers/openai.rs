@@ -146,7 +146,8 @@ pub async fn handle_chat_completions(
     let upstream = state.upstream.clone();
     let token_manager = state.token_manager;
     let pool_size = token_manager.len();
-    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size).max(1);
+    // [FIX] Ensure max_attempts is at least 2 to allow for internal retries
+    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size.saturating_add(1)).max(2);
 
     let mut last_error = String::new();
     let mut last_email: Option<String> = None;
@@ -177,7 +178,7 @@ pub async fn handle_chat_completions(
         // 4. 获取 Token (使用准确的 request_type)
         // 关键：在重试尝试 (attempt > 0) 时强制轮换账号
         let (access_token, project_id, email) = match token_manager
-            .get_token(&config.request_type, attempt > 0, Some(&session_id), &openai_req.model)
+            .get_token(&config.request_type, attempt > 0, Some(&session_id), &mapped_model)
             .await
         {
             Ok(t) => t,
@@ -346,10 +347,16 @@ pub async fn handle_chat_completions(
             error_text
         );
 
-        // 429/529/503 智能处理
+        // 3. 标记限流状态(用于 UI 显示)
         if status_code == 429 || status_code == 529 || status_code == 503 || status_code == 500 {
-            // 记录限流信息 (全局同步)
-            token_manager.mark_rate_limited(&email, status_code, retry_after.as_deref(), &error_text);
+            // [FIX] Use async version with model parameter for fine-grained rate limiting
+            token_manager.mark_rate_limited_async(
+                &email,
+                status_code,
+                retry_after.as_deref(),
+                &error_text,
+                Some(&mapped_model)
+            ).await;
 
             // 1. 优先尝试解析 RetryInfo (由 Google Cloud 直接下发)
             if let Some(delay_ms) = crate::proxy::upstream::retry::parse_retry_delay(&error_text) {
@@ -366,7 +373,9 @@ pub async fn handle_chat_completions(
                 continue;
             }
 
-            // 2. 只有明确包含 "QUOTA_EXHAUSTED" 才停止，避免误判频率提示 (如 "check quota")
+            // 2. [REMOVED] 不再特殊处理 QUOTA_EXHAUSTED，允许账号轮换
+            // if error_text.contains("QUOTA_EXHAUSTED") { ... }
+            /*
             if error_text.contains("QUOTA_EXHAUSTED") {
                 error!(
                     "OpenAI Quota exhausted (429) on account {} attempt {}/{}, stopping to protect pool.",
@@ -376,6 +385,7 @@ pub async fn handle_chat_completions(
                 );
                 return Ok((status, [("X-Account-Email", email.as_str()), ("X-Mapped-Model", mapped_model.as_str())], error_text).into_response());
             }
+            */
 
             // 3. 其他限流或服务器过载情况，轮换账号
             tracing::warn!(
@@ -827,7 +837,8 @@ pub async fn handle_completions(
     let upstream = state.upstream.clone();
     let token_manager = state.token_manager;
     let pool_size = token_manager.len();
-    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size).max(1);
+    // [FIX] Ensure max_attempts is at least 2 to allow for internal retries
+    let max_attempts = MAX_RETRY_ATTEMPTS.min(pool_size.saturating_add(1)).max(2);
 
     let mut last_error = String::new();
     let mut last_email: Option<String> = None;
