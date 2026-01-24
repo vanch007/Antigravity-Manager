@@ -506,8 +506,8 @@ pub async fn handle_messages(
         });
 
         let config = crate::proxy::mappers::common_utils::resolve_request_config(
-            &request_for_body.model, 
-            &mapped_model, 
+            &request_for_body.model,
+            &mapped_model,
             &tools_val,
             request.size.as_deref(),      // [NEW] Pass size parameter
             request.quality.as_deref()    // [NEW] Pass quality parameter

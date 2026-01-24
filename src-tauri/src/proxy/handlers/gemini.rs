@@ -60,8 +60,8 @@ pub async fn handle_generate(
         });
 
         let config = crate::proxy::mappers::common_utils::resolve_request_config(
-            &model_name, 
-            &mapped_model, 
+            &model_name,
+            &mapped_model,
             &tools_val,
             None,  // size (not applicable for Gemini native protocol)
             None   // quality

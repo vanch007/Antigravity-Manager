@@ -418,8 +418,8 @@ pub fn transform_claude_request_in(
 
     // Resolve grounding config
     let config = crate::proxy::mappers::common_utils::resolve_request_config(
-        &claude_req.model, 
-        &mapped_model, 
+        &claude_req.model,
+        &mapped_model,
         &tools_val,
         claude_req.size.as_deref(),      // [NEW] Pass size parameter
         claude_req.quality.as_deref()    // [NEW] Pass quality parameter

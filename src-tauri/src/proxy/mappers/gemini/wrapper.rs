@@ -53,7 +53,7 @@ pub fn wrap_request(body: &Value, project_id: &str, mapped_model: &str, session_
 
     // Use shared grounding/config logic
     let config = crate::proxy::mappers::common_utils::resolve_request_config(original_model, final_model_name, &tools_val, None, None);
-    
+
     // Clean tool declarations (remove forbidden Schema fields like multipleOf, and remove redundant search decls)
     if let Some(tools) = inner_request.get_mut("tools") {
         if let Some(tools_arr) = tools.as_array_mut() {
@@ -93,9 +93,9 @@ pub fn wrap_request(body: &Value, project_id: &str, mapped_model: &str, session_
     // Inject imageConfig if present (for image generation models)
     if let Some(image_config) = config.image_config {
          if let Some(obj) = inner_request.as_object_mut() {
-             // 1. Remove tools (image generation does not support tools)
+             // 1. Filter tools: remove tools for image gen
              obj.remove("tools");
-             
+
              // 2. Remove systemInstruction (image generation does not support system prompts)
              obj.remove("systemInstruction");
 
@@ -283,5 +283,35 @@ mod tests {
 
         // Should NOT inject duplicate, so only 1 part remains
         assert_eq!(parts.len(), 1);
+    }
+
+    #[test]
+    fn test_image_generation_with_reference_images() {
+        // Create 14 reference images + 1 text prompt
+        let mut parts = Vec::new();
+        parts.push(json!({"text": "Generate a variation"}));
+
+        for _ in 0..14 {
+            parts.push(json!({
+                "inlineData": {
+                    "mimeType": "image/jpeg",
+                    "data": "base64data..."
+                }
+            }));
+        }
+
+        let body = json!({
+            "model": "gemini-3-pro-image",
+            "contents": [{"parts": parts}]
+        });
+
+        let result = wrap_request(&body, "test-proj", "gemini-3-pro-image", None);
+
+        let request = result.get("request").unwrap();
+        let contents = request.get("contents").unwrap().as_array().unwrap();
+        let result_parts = contents[0].get("parts").unwrap().as_array().unwrap();
+
+        // Verify all 15 parts (1 text + 14 images) are preserved
+        assert_eq!(result_parts.len(), 15);
     }
 }

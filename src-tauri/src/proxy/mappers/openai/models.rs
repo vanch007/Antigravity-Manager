@@ -35,6 +35,8 @@ pub struct OpenAIRequest {
     pub size: Option<String>,
     #[serde(default)]
     pub quality: Option<String>,
+    #[serde(default, rename = "personGeneration")]
+    pub person_generation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
