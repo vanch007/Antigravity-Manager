@@ -22,7 +22,7 @@ pub fn transform_openai_request(
         &mapped_model_lower,
         &tools_val,
         request.size.as_deref(),    // [NEW] Pass size parameter
-        request.quality.as_deref(), // [NEW] Pass quality parameter
+        request.quality.as_deref()  // [NEW] Pass quality parameter
     );
 
     // 检测 Gemini 3 Pro thinking 模型
@@ -613,6 +613,7 @@ mod tests {
             prompt: None,
             size: None,
             quality: None,
+            person_generation: None,
         };
 
         let result = transform_openai_request(&req, "test-v", "gemini-1.5-flash");

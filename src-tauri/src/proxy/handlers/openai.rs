@@ -1220,11 +1220,13 @@ pub async fn handle_images_generations(
         let image_config = image_config.clone(); // 使用解析后的完整配置
         let _response_format = response_format.to_string();
 
+        let model_to_use = "gemini-3-pro-image".to_string();
+
         tasks.push(tokio::spawn(async move {
             let gemini_body = json!({
                 "project": project_id,
                 "requestId": format!("agent-{}", uuid::Uuid::new_v4()),
-                "model": "gemini-3-pro-image",
+                "model": model_to_use,
                 "userAgent": "antigravity",
                 "requestType": "image_gen",
                 "request": {
@@ -1365,11 +1367,15 @@ pub async fn handle_images_edits(
 
     let mut image_data = None;
     let mut mask_data = None;
+    let mut reference_images: Vec<String> = Vec::new(); // Store base64 data of reference images
     let mut prompt = String::new();
     let mut n = 1;
     let mut size = "1024x1024".to_string();
-    let mut response_format = "b64_json".to_string(); // Default to b64_json for better compatibility with tools handling edits
+    let mut response_format = "b64_json".to_string();
     let mut model = "gemini-3-pro-image".to_string();
+    let mut aspect_ratio: Option<String> = None;
+    let mut image_size_param: Option<String> = None; // Distinct from 'size' to match user spec
+    let mut style: Option<String> = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -1390,6 +1396,12 @@ pub async fn handle_images_edits(
                 .await
                 .map_err(|e| (StatusCode::BAD_REQUEST, format!("Mask read error: {}", e)))?;
             mask_data = Some(base64::engine::general_purpose::STANDARD.encode(data));
+        } else if name.starts_with("image") && name != "image_size" { // Support image1, image2, etc.
+             let data = field
+                .bytes()
+                .await
+                .map_err(|e| (StatusCode::BAD_REQUEST, format!("Reference image read error: {}", e)))?;
+            reference_images.push(base64::engine::general_purpose::STANDARD.encode(data));
         } else if name == "prompt" {
             prompt = field
                 .text()
@@ -1402,6 +1414,18 @@ pub async fn handle_images_edits(
         } else if name == "size" {
             if let Ok(val) = field.text().await {
                 size = val;
+            }
+        } else if name == "image_size" {
+             if let Ok(val) = field.text().await {
+                image_size_param = Some(val);
+            }
+        } else if name == "aspect_ratio" {
+             if let Ok(val) = field.text().await {
+                aspect_ratio = Some(val);
+            }
+        } else if name == "style" {
+             if let Ok(val) = field.text().await {
+                style = Some(val);
             }
         } else if name == "response_format" {
             if let Ok(val) = field.text().await {
@@ -1416,38 +1440,28 @@ pub async fn handle_images_edits(
         }
     }
 
-    if image_data.is_none() {
-        return Err((StatusCode::BAD_REQUEST, "Missing image".to_string()));
-    }
+    // Validation: Require either 'image' (standard edit) OR 'prompt' (generation)
+    // If reference images are present, we treat it as generation with image context
     if prompt.is_empty() {
         return Err((StatusCode::BAD_REQUEST, "Missing prompt".to_string()));
     }
 
     tracing::info!(
-        "[Images] Edit Request: model={}, prompt={}, n={}, size={}, mask={}, response_format={}",
+        "[Images] Edit/Ref Request: model={}, prompt={}, n={}, size={}, aspect_ratio={:?}, image_size={:?}, style={:?}, refs={}, has_main_image={}",
         model,
         prompt,
         n,
         size,
-        mask_data.is_some(),
-        response_format
+        aspect_ratio,
+        image_size_param,
+        style,
+        reference_images.len(),
+        image_data.is_some()
     );
 
-    // FIX: Client Display Issue
-    // Cherry Studio (and potentially others) might accept Data URI for generations but display raw text for edits
-    // if 'url' format is used with a data-uri.
-    // If request asks for 'url' but we are a local proxy, returning b64_json is often safer for correct rendering if the client supports it.
-    // However, strictly following spec means 'url' should be 'url'.
-    // Let's rely on client requesting the right thing, BUT allow a server-side heuristic:
-    // If we simply return b64_json structure even if url was requested? No, that breaks spec.
-    // Instead, let's assume successful clients request b64_json.
-    // But if users see raw text, it means client defaulted to 'url' or we defaulted to 'url'.
-    // Let's keep the log to confirm.
-
-    // 1. 获取 Upstream
+    // 1. Get Upstream & Token
     let upstream = state.upstream.clone();
     let token_manager = state.token_manager;
-    // Fix: Proper get_token call with correct signature and unwrap (using image_gen quota)
     let (access_token, project_id, email) = match token_manager.get_token("image_gen", false, None, "dall-e-3").await
     {
         Ok(t) => t,
@@ -1459,13 +1473,40 @@ pub async fn handle_images_edits(
         }
     };
 
-    // 2. 映射配置
+    // 2. Prepare Config (Aspect Ratio / Size)
+    // Priority: aspect_ratio param > size param
+    // Priority: image_size param > quality param (derived from model suffix or default)
+
+    // We reuse parse_image_config_with_params but need to adapt the inputs
+    let size_input = aspect_ratio.as_deref().or(Some(&size)); // If aspect_ratio is "16:9", it works. If it's just "1:1", it also works.
+
+    // Map 'image_size' (2K) to 'quality' semantics if needed, or pass directly if logic supports
+    // common_utils logic: 'hd' -> 4K, 'medium' -> 2K.
+    let quality_input = match image_size_param.as_deref() {
+        Some("4K") => Some("hd"),
+        Some("2K") => Some("medium"),
+        _ => None, // Fallback to standard
+    };
+
+    let (mut image_config, _) = crate::proxy::mappers::common_utils::parse_image_config_with_params(
+        &model,
+        size_input,
+        quality_input
+    );
+
+    // 3. Construct Contents
     let mut contents_parts = Vec::new();
 
+    // Add Prompt
+    let mut final_prompt = prompt.clone();
+    if let Some(s) = style {
+        final_prompt.push_str(&format!(", style: {}", s));
+    }
     contents_parts.push(json!({
-        "text": format!("Edit this image: {}", prompt)
+        "text": final_prompt
     }));
 
+    // Add Main Image (if standard edit)
     if let Some(data) = image_data {
         contents_parts.push(json!({
             "inlineData": {
@@ -1475,6 +1516,7 @@ pub async fn handle_images_edits(
         }));
     }
 
+    // Add Mask (if standard edit)
     if let Some(data) = mask_data {
         contents_parts.push(json!({
             "inlineData": {
@@ -1484,8 +1526,18 @@ pub async fn handle_images_edits(
         }));
     }
 
-    // 构造 Gemini 内网 API Body (Envelope Structure)
-    let gemini_body = json!({
+    // Add Reference Images (Image-to-Image)
+    for ref_data in reference_images {
+        contents_parts.push(json!({
+            "inlineData": {
+                "mimeType": "image/jpeg", // Assume JPEG for refs as per spec suggestion, or auto-detect
+                "data": ref_data
+            }
+        }));
+    }
+
+    // 4. Construct Request Body
+    let mut gemini_body = json!({
         "project": project_id,
         "requestId": format!("img-edit-{}", uuid::Uuid::new_v4()),
         "model": model,
@@ -1498,6 +1550,7 @@ pub async fn handle_images_edits(
             }],
             "generationConfig": {
                 "candidateCount": 1,
+                "imageConfig": image_config, // Use parsed config
                 "maxOutputTokens": 8192,
                 "stopSequences": [],
                 "temperature": 1.0,
@@ -1514,6 +1567,7 @@ pub async fn handle_images_edits(
         }
     });
 
+    // 5. Execute Requests (Parallel for n > 1)
     let mut tasks = Vec::new();
     for _ in 0..n {
         let upstream = upstream.clone();
@@ -1541,6 +1595,7 @@ pub async fn handle_images_edits(
         }));
     }
 
+    // 6. Collect Results
     let mut images: Vec<Value> = Vec::new();
     let mut errors: Vec<String> = Vec::new();
 
