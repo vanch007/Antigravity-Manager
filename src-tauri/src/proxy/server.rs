@@ -1,20 +1,20 @@
+use crate::models::{Account, AppConfig, DeviceProfile, QuotaData};
+use crate::modules::{account, config, logger, migration, proxy_db, token_stats};
 use crate::proxy::TokenManager;
 use axum::{
-    extract::{Path, State, Query},
-    http::{StatusCode, HeaderMap},
-    response::{IntoResponse, Json, Response, Html},
-    routing::{any, get, post, delete},
+    extract::{DefaultBodyLimit, Path, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Json, Response},
+    routing::{any, delete, get, post},
     Router,
 };
-use std::sync::Arc;
-use tokio::sync::oneshot;
-use tracing::{debug, error};
-use tokio::sync::RwLock;
-use std::sync::atomic::AtomicUsize;
 use futures::TryFutureExt;
 use serde::{Deserialize, Serialize};
-use crate::modules::{account, logger, proxy_db, config, token_stats, migration};
-use crate::models::{Account, AppConfig, QuotaData, DeviceProfile};
+use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
+use tokio::sync::oneshot;
+use tokio::sync::RwLock;
+use tracing::{debug, error};
 
 /// Axum 应用状态
 #[derive(Clone)]
@@ -36,7 +36,7 @@ pub struct AppState {
     pub switching: Arc<RwLock<bool>>, // [NEW] 账号切换状态，用于防止并发切换
     pub integration: crate::modules::integration::SystemManager, // [NEW] 系统集成层实现
     pub account_service: Arc<crate::modules::account_service::AccountService>, // [NEW] 账号管理服务层
-    pub security: Arc<RwLock<crate::proxy::ProxySecurityConfig>>, // [NEW] 安全配置状态
+    pub security: Arc<RwLock<crate::proxy::ProxySecurityConfig>>,              // [NEW] 安全配置状态
     pub cloudflared_state: Arc<crate::commands::cloudflared::CloudflaredState>, // [NEW] Cloudflared 插件状态
     pub is_running: Arc<RwLock<bool>>, // [NEW] 运行状态标识
 }
@@ -92,7 +92,10 @@ struct AccountListResponse {
     current_account_id: Option<String>,
 }
 
-fn to_account_response(account: &crate::models::account::Account, current_id: &Option<String>) -> AccountResponse {
+fn to_account_response(
+    account: &crate::models::account::Account,
+    current_id: &Option<String>,
+) -> AccountResponse {
     AccountResponse {
         id: account.id.clone(),
         email: account.email.clone(),
@@ -106,11 +109,15 @@ fn to_account_response(account: &crate::models::account::Account, current_id: &O
         proxy_disabled_at: account.proxy_disabled_at,
         protected_models: account.protected_models.iter().cloned().collect(),
         quota: account.quota.as_ref().map(|q| QuotaResponse {
-            models: q.models.iter().map(|m| ModelQuota {
-                name: m.name.clone(),
-                percentage: m.percentage,
-                reset_time: m.reset_time.clone(),
-            }).collect(),
+            models: q
+                .models
+                .iter()
+                .map(|m| ModelQuota {
+                    name: m.name.clone(),
+                    percentage: m.percentage,
+                    reset_time: m.reset_time.clone(),
+                })
+                .collect(),
             last_updated: q.last_updated,
             subscription_tier: q.subscription_tier.clone(),
             is_forbidden: q.is_forbidden,
@@ -189,19 +196,18 @@ impl AxumServer {
         cloudflared_state: Arc<crate::commands::cloudflared::CloudflaredState>,
     ) -> Result<(Self, tokio::task::JoinHandle<()>), String> {
         let custom_mapping_state = Arc::new(tokio::sync::RwLock::new(custom_mapping));
-	        let proxy_state = Arc::new(tokio::sync::RwLock::new(upstream_proxy.clone()));
-	        let security_state = Arc::new(RwLock::new(security_config));
-	        let zai_state = Arc::new(RwLock::new(zai_config));
-	        let provider_rr = Arc::new(AtomicUsize::new(0));
-	        let zai_vision_mcp_state =
-	            Arc::new(crate::proxy::zai_vision_mcp::ZaiVisionMcpState::new());
-	        let experimental_state = Arc::new(RwLock::new(experimental_config));
-            let is_running_state = Arc::new(RwLock::new(true));
+        let proxy_state = Arc::new(tokio::sync::RwLock::new(upstream_proxy.clone()));
+        let security_state = Arc::new(RwLock::new(security_config));
+        let zai_state = Arc::new(RwLock::new(zai_config));
+        let provider_rr = Arc::new(AtomicUsize::new(0));
+        let zai_vision_mcp_state = Arc::new(crate::proxy::zai_vision_mcp::ZaiVisionMcpState::new());
+        let experimental_state = Arc::new(RwLock::new(experimental_config));
+        let is_running_state = Arc::new(RwLock::new(true));
 
-	        let state = AppState {
-	            token_manager: token_manager.clone(),
-	            custom_mapping: custom_mapping_state.clone(),
-	            request_timeout: 300, // 5分钟超时
+        let state = AppState {
+            token_manager: token_manager.clone(),
+            custom_mapping: custom_mapping_state.clone(),
+            request_timeout: 300, // 5分钟超时
             thought_signature_map: Arc::new(tokio::sync::Mutex::new(
                 std::collections::HashMap::new(),
             )),
@@ -216,18 +222,19 @@ impl AxumServer {
             experimental: experimental_state.clone(),
             switching: Arc::new(RwLock::new(false)),
             integration: integration.clone(),
-            account_service: Arc::new(crate::modules::account_service::AccountService::new(integration.clone())),
+            account_service: Arc::new(crate::modules::account_service::AccountService::new(
+                integration.clone(),
+            )),
             security: security_state.clone(),
             cloudflared_state: cloudflared_state.clone(),
             is_running: is_running_state.clone(),
         };
 
-
         // 构建路由 - 使用新架构的 handlers！
         use crate::proxy::handlers;
         use crate::proxy::middleware::{
-            auth_middleware, admin_auth_middleware, monitor_middleware, 
-            service_status_middleware, cors_layer
+            admin_auth_middleware, auth_middleware, cors_layer, monitor_middleware,
+            service_status_middleware,
         };
 
         // 1. 构建主 AI 代理路由 (遵循 auth_mode 配置)
@@ -270,10 +277,7 @@ impl AxumServer {
                 "/mcp/web_search_prime/mcp",
                 any(handlers::mcp::handle_web_search_prime),
             )
-            .route(
-                "/mcp/web_reader/mcp",
-                any(handlers::mcp::handle_web_reader),
-            )
+            .route("/mcp/web_reader/mcp", any(handlers::mcp::handle_web_reader))
             .route(
                 "/mcp/zai-mcp-server/mcp",
                 any(handlers::mcp::handle_zai_mcp_server),
@@ -289,31 +293,55 @@ impl AxumServer {
                 "/v1beta/models/:model/countTokens",
                 post(handlers::gemini::handle_count_tokens),
             ) // Specific route priority
-            .route("/v1/models/detect", post(handlers::common::handle_detect_model))
+            .route(
+                "/v1/models/detect",
+                post(handlers::common::handle_detect_model),
+            )
             .route("/internal/warmup", post(handlers::warmup::handle_warmup)) // 内部预热端点
             .route("/v1/api/event_logging/batch", post(silent_ok_handler))
             .route("/v1/api/event_logging", post(silent_ok_handler))
             // 应用 AI 服务特定的层
-            .layer(axum::middleware::from_fn_with_state(state.clone(), auth_middleware))
-            .layer(axum::middleware::from_fn_with_state(state.clone(), monitor_middleware));
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                auth_middleware,
+            ))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                monitor_middleware,
+            ));
 
         // 2. 构建管理 API (强制鉴权)
         let admin_routes = Router::new()
             .route("/health", get(health_check_handler))
-            .route("/accounts", get(admin_list_accounts).post(admin_add_account))
+            .route(
+                "/accounts",
+                get(admin_list_accounts).post(admin_add_account),
+            )
             .route("/accounts/current", get(admin_get_current_account))
             .route("/accounts/switch", post(admin_switch_account))
             .route("/accounts/refresh", post(admin_refresh_all_quotas))
             .route("/accounts/:accountId", delete(admin_delete_account))
             .route("/accounts/:accountId/bind-device", post(admin_bind_device))
-            .route("/accounts/:accountId/device-profiles", get(admin_get_device_profiles))
-            .route("/accounts/:accountId/device-versions", get(admin_list_device_versions))
-            .route("/accounts/device-preview", post(admin_preview_generate_profile))
+            .route(
+                "/accounts/:accountId/device-profiles",
+                get(admin_get_device_profiles),
+            )
+            .route(
+                "/accounts/:accountId/device-versions",
+                get(admin_list_device_versions),
+            )
+            .route(
+                "/accounts/device-preview",
+                post(admin_preview_generate_profile),
+            )
             .route(
                 "/accounts/:accountId/bind-device-profile",
                 post(admin_bind_device_profile_with_profile),
             )
-            .route("/accounts/restore-original", post(admin_restore_original_device))
+            .route(
+                "/accounts/restore-original",
+                post(admin_restore_original_device),
+            )
             .route(
                 "/accounts/:accountId/device-versions/:versionId/restore",
                 post(admin_restore_device_version),
@@ -342,7 +370,10 @@ impl AxumServer {
             .route("/proxy/stop", post(admin_stop_proxy_service))
             .route("/proxy/mapping", post(admin_update_model_mapping))
             .route("/proxy/api-key/generate", post(admin_generate_api_key))
-            .route("/proxy/session-bindings/clear", post(admin_clear_proxy_session_bindings))
+            .route(
+                "/proxy/session-bindings/clear",
+                post(admin_clear_proxy_session_bindings),
+            )
             .route(
                 "/proxy/preferred-account",
                 get(admin_get_preferred_account).post(admin_set_preferred_account),
@@ -352,9 +383,18 @@ impl AxumServer {
             .route("/accounts/oauth/complete", post(admin_complete_oauth_login))
             .route("/accounts/oauth/cancel", post(admin_cancel_oauth_login))
             .route("/zai/models/fetch", post(admin_fetch_zai_models))
-            .route("/proxy/monitor/toggle", post(admin_set_proxy_monitor_enabled))
-            .route("/proxy/cloudflared/status", get(admin_cloudflared_get_status))
-            .route("/proxy/cloudflared/install", post(admin_cloudflared_install))
+            .route(
+                "/proxy/monitor/toggle",
+                post(admin_set_proxy_monitor_enabled),
+            )
+            .route(
+                "/proxy/cloudflared/status",
+                get(admin_cloudflared_get_status),
+            )
+            .route(
+                "/proxy/cloudflared/install",
+                post(admin_cloudflared_install),
+            )
             .route("/proxy/cloudflared/start", post(admin_cloudflared_start))
             .route("/proxy/cloudflared/stop", post(admin_cloudflared_stop))
             .route("/system/open-folder", post(admin_open_folder))
@@ -367,7 +407,10 @@ impl AxumServer {
             .route("/stats/token/hourly", get(admin_get_token_stats_hourly))
             .route("/stats/token/daily", get(admin_get_token_stats_daily))
             .route("/stats/token/weekly", get(admin_get_token_stats_weekly))
-            .route("/stats/token/by-account", get(admin_get_token_stats_by_account))
+            .route(
+                "/stats/token/by-account",
+                get(admin_get_token_stats_by_account),
+            )
             .route("/stats/token/summary", get(admin_get_token_stats_summary))
             .route("/stats/token/by-model", get(admin_get_token_stats_by_model))
             .route(
@@ -389,17 +432,26 @@ impl AxumServer {
             .route("/accounts/bulk-delete", post(admin_delete_accounts))
             .route("/accounts/reorder", post(admin_reorder_accounts))
             .route("/accounts/:accountId/quota", get(admin_fetch_account_quota))
-            .route("/accounts/:accountId/toggle-proxy", post(admin_toggle_proxy_status))
+            .route(
+                "/accounts/:accountId/toggle-proxy",
+                post(admin_toggle_proxy_status),
+            )
             .route("/accounts/warmup", post(admin_warm_up_all_accounts))
             .route("/accounts/:accountId/warmup", post(admin_warm_up_account))
             .route("/system/data-dir", get(admin_get_data_dir_path))
             .route("/system/save-file", post(admin_save_text_file))
             .route("/system/updates/settings", get(admin_get_update_settings))
-            .route("/system/updates/check-status", get(admin_should_check_updates))
+            .route(
+                "/system/updates/check-status",
+                get(admin_should_check_updates),
+            )
             .route("/system/updates/check", post(admin_check_for_updates))
             .route("/system/updates/touch", post(admin_update_last_check_time))
             .route("/system/updates/save", post(admin_save_update_settings))
-            .route("/system/autostart/status", get(admin_is_auto_launch_enabled))
+            .route(
+                "/system/autostart/status",
+                get(admin_is_auto_launch_enabled),
+            )
             .route("/system/autostart/toggle", post(admin_toggle_auto_launch))
             .route(
                 "/system/http-api/settings",
@@ -410,7 +462,10 @@ impl AxumServer {
             // OAuth (Web) - Admin 接口
             .route("/auth/url", get(admin_prepare_oauth_url_web))
             // 应用管理特定鉴权层 (强制校验)
-            .layer(axum::middleware::from_fn_with_state(state.clone(), admin_auth_middleware));
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                admin_auth_middleware,
+            ));
 
         // 3. 整合并应用全局层
         let app = Router::new()
@@ -419,18 +474,21 @@ impl AxumServer {
             // 公开路由 (无需鉴权)
             .route("/auth/callback", get(handle_oauth_callback))
             // 应用全局监控与状态层 (外层)
-            .layer(axum::middleware::from_fn_with_state(state.clone(), service_status_middleware))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                service_status_middleware,
+            ))
             .layer(cors_layer())
+            .layer(DefaultBodyLimit::max(50 * 1024 * 1024)) // Increase body limit to 50MB
             .with_state(state.clone());
 
         // 静态文件托管 (用于 Headless/Docker 模式)
         let dist_path = std::env::var("ABV_DIST_PATH").unwrap_or_else(|_| "dist".to_string());
         let app = if std::path::Path::new(&dist_path).exists() {
             tracing::info!("正在托管静态资源: {}", dist_path);
-            app.fallback_service(
-                tower_http::services::ServeDir::new(&dist_path)
-                    .fallback(tower_http::services::ServeFile::new(format!("{}/index.html", dist_path)))
-            )
+            app.fallback_service(tower_http::services::ServeDir::new(&dist_path).fallback(
+                tower_http::services::ServeFile::new(format!("{}/index.html", dist_path)),
+            ))
         } else {
             app
         };
@@ -531,8 +589,6 @@ async fn silent_ok_handler() -> Response {
 
 // [整合清理] 旧模型定义与映射器已上移
 
-
-
 async fn admin_list_accounts(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
@@ -550,16 +606,20 @@ async fn admin_list_accounts(
         .map(|acc| {
             let is_current = current_id.as_ref().map(|id| id == &acc.id).unwrap_or(false);
             let quota = acc.quota.map(|q| QuotaResponse {
-                models: q.models.into_iter().map(|m| ModelQuota {
-                    name: m.name,
-                    percentage: m.percentage,
-                    reset_time: m.reset_time,
-                }).collect(),
+                models: q
+                    .models
+                    .into_iter()
+                    .map(|m| ModelQuota {
+                        name: m.name,
+                        percentage: m.percentage,
+                        reset_time: m.reset_time,
+                    })
+                    .collect(),
                 last_updated: q.last_updated,
                 subscription_tier: q.subscription_tier,
                 is_forbidden: q.is_forbidden,
             });
-            
+
             AccountResponse {
                 id: acc.id,
                 email: acc.email,
@@ -589,18 +649,25 @@ async fn admin_get_current_account(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let current_id = state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
 
     let response = if let Some(id) = current_id {
         let acc = account::load_account(&id).ok();
         acc.map(|acc| {
             let quota = acc.quota.map(|q| QuotaResponse {
-                models: q.models.into_iter().map(|m| ModelQuota {
-                    name: m.name,
-                    percentage: m.percentage,
-                    reset_time: m.reset_time,
-                }).collect(),
+                models: q
+                    .models
+                    .into_iter()
+                    .map(|m| ModelQuota {
+                        name: m.name,
+                        percentage: m.percentage,
+                        reset_time: m.reset_time,
+                    })
+                    .collect(),
                 last_updated: q.last_updated,
                 subscription_tier: q.subscription_tier,
                 is_forbidden: q.is_forbidden,
@@ -640,15 +707,22 @@ async fn admin_add_account(
     State(state): State<AppState>,
     Json(payload): Json<AddAccountRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let account = state.account_service.add_account(&payload.refresh_token).await.map_err(|e| {
+    let account = state
+        .account_service
+        .add_account(&payload.refresh_token)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
+
+    let current_id = state.account_service.get_current_id().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
         )
-    })?;
-
-    let current_id = state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
     })?;
     Ok(Json(to_account_response(&account, &current_id)))
 }
@@ -657,12 +731,15 @@ async fn admin_delete_account(
     State(state): State<AppState>,
     Path(account_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    state.account_service.delete_account(&account_id).map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: e }),
-        )
-    })?;
+    state
+        .account_service
+        .delete_account(&account_id)
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -719,10 +796,14 @@ async fn admin_switch_account(
     }
 }
 
-async fn admin_refresh_all_quotas() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+async fn admin_refresh_all_quotas() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>
+{
     logger::log_info("[API] Starting refresh of all account quotas");
     let stats = account::refresh_all_quotas_logic().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
 
     Ok(Json(stats))
@@ -733,20 +814,37 @@ async fn admin_refresh_all_quotas() -> Result<impl IntoResponse, (StatusCode, Js
 async fn admin_prepare_oauth_url(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let url = state.account_service.prepare_oauth_url().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
+    let url = state
+        .account_service
+        .prepare_oauth_url()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(serde_json::json!({ "url": url })))
 }
 
 async fn admin_start_oauth_login(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let account = state.account_service.start_oauth_login().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
+    let account = state
+        .account_service
+        .start_oauth_login()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     let current_id = state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(to_account_response(&account, &current_id)))
 }
@@ -754,11 +852,21 @@ async fn admin_start_oauth_login(
 async fn admin_complete_oauth_login(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let account = state.account_service.complete_oauth_login().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
+    let account = state
+        .account_service
+        .complete_oauth_login()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     let current_id = state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(to_account_response(&account, &current_id)))
 }
@@ -776,7 +884,9 @@ struct BindDeviceRequest {
     mode: String,
 }
 
-fn default_bind_mode() -> String { "generate".to_string() }
+fn default_bind_mode() -> String {
+    "generate".to_string()
+}
 
 async fn admin_bind_device(
     Path(account_id): Path<String>,
@@ -813,18 +923,27 @@ async fn admin_get_logs(
     Query(params): Query<LogsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let limit = if params.limit == 0 { 50 } else { params.limit };
-    let total = proxy_db::get_logs_count_filtered(&params.filter, params.errors_only)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    let logs = proxy_db::get_logs_filtered(&params.filter, params.errors_only, limit, params.offset)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    let total =
+        proxy_db::get_logs_count_filtered(&params.filter, params.errors_only).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
+    let logs =
+        proxy_db::get_logs_filtered(&params.filter, params.errors_only, limit, params.offset)
+            .map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )
+            })?;
 
     Ok(Json(serde_json::json!({
         "total": total,
         "logs": logs,
     })))
 }
-
-
 
 #[derive(Deserialize, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -833,13 +952,18 @@ struct StatsRequest {
     range: i64,
 }
 
-fn default_stats_range() -> i64 { 24 }
+fn default_stats_range() -> i64 {
+    24
+}
 
 async fn admin_get_stats_summary(
     Query(params): Query<StatsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = token_stats::get_summary_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(stats))
 }
@@ -848,7 +972,10 @@ async fn admin_get_stats_hourly(
     Query(params): Query<StatsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = token_stats::get_hourly_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(stats))
 }
@@ -857,7 +984,10 @@ async fn admin_get_stats_daily(
     Query(params): Query<StatsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = token_stats::get_daily_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(stats))
 }
@@ -866,7 +996,10 @@ async fn admin_get_stats_weekly(
     Query(params): Query<StatsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = token_stats::get_weekly_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(stats))
 }
@@ -875,7 +1008,10 @@ async fn admin_get_stats_accounts(
     Query(params): Query<StatsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = token_stats::get_account_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(stats))
 }
@@ -884,16 +1020,20 @@ async fn admin_get_stats_models(
     Query(params): Query<StatsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = token_stats::get_model_stats(params.range).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(stats))
 }
 
-
-
 async fn admin_get_config() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let cfg = config::load_app_config().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(cfg))
 }
@@ -911,41 +1051,44 @@ async fn admin_save_config(
     let new_config = payload.config;
     // 1. 持久化
     config::save_app_config(&new_config).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
 
     // 2. 热更新内存状态
     // 这里我们直接复用内部组件的 update 方法
     // 注意：AppState 本身持有各个组件的 Arc<RwLock> 或直接持有引用
-    
+
     // 我们需要一个方式获取到当前的 AxumServer 实例来进行热更新，
     // 或者直接操作 AppState 里的各状态。
     // 在本重构中，各个状态已经在 AppState 中了。
-    
+
     // 更新模型映射
     {
         let mut mapping = state.custom_mapping.write().await;
         *mapping = new_config.clone().proxy.custom_mapping;
     }
-    
+
     // 更新上游代理
     {
         let mut proxy = state.upstream_proxy.write().await;
         *proxy = new_config.clone().proxy.upstream_proxy;
     }
-    
+
     // 更新安全策略
     {
         let mut security = state.security.write().await;
         *security = crate::proxy::ProxySecurityConfig::from_proxy_config(&new_config.proxy);
     }
-    
+
     // 更新 z.ai 配置
     {
         let mut zai = state.zai.write().await;
         *zai = new_config.clone().proxy.zai;
     }
-    
+
     // 更新实验性配置
     {
         let mut exp = state.experimental.write().await;
@@ -971,18 +1114,14 @@ async fn admin_get_proxy_status(
     })))
 }
 
-async fn admin_start_proxy_service(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn admin_start_proxy_service(State(state): State<AppState>) -> impl IntoResponse {
     let mut running = state.is_running.write().await;
     *running = true;
     logger::log_info("[API] 反代服务功能已启用");
     StatusCode::OK
 }
 
-async fn admin_stop_proxy_service(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn admin_stop_proxy_service(State(state): State<AppState>) -> impl IntoResponse {
     let mut running = state.is_running.write().await;
     *running = false;
     logger::log_info("[API] 反代服务功能已禁用 (Axum 模式)");
@@ -1011,17 +1150,13 @@ async fn admin_generate_api_key() -> impl IntoResponse {
     Json(new_key)
 }
 
-async fn admin_clear_proxy_session_bindings(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn admin_clear_proxy_session_bindings(State(state): State<AppState>) -> impl IntoResponse {
     state.token_manager.clear_all_sessions();
     logger::log_info("[API] 已清除所有会话绑定");
     StatusCode::OK
 }
 
-async fn admin_get_preferred_account(
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+async fn admin_get_preferred_account(State(state): State<AppState>) -> impl IntoResponse {
     let pref = state.token_manager.get_preferred_account().await;
     Json(pref)
 }
@@ -1036,7 +1171,10 @@ async fn admin_set_preferred_account(
     State(state): State<AppState>,
     Json(payload): Json<SetPreferredAccountRequest>,
 ) -> impl IntoResponse {
-    state.token_manager.set_preferred_account(payload.account_id).await;
+    state
+        .token_manager
+        .set_preferred_account(payload.account_id)
+        .await;
     StatusCode::OK
 }
 
@@ -1048,28 +1186,59 @@ async fn admin_fetch_zai_models(
     // 目前前端 fetch_zai_models 本质上也是一个工具函数，
     // 我们可以在后端通过 reqwest 代理抓取。
     let zai_config = payload.get("zai").ok_or_else(|| {
-        (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "Missing zai config".to_string() }))
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "Missing zai config".to_string(),
+            }),
+        )
     })?;
-    
-    let api_key = zai_config.get("api_key").and_then(|v| v.as_str()).unwrap_or("");
-    let base_url = zai_config.get("base_url").and_then(|v| v.as_str()).unwrap_or("https://api.z.ai");
+
+    let api_key = zai_config
+        .get("api_key")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let base_url = zai_config
+        .get("base_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("https://api.z.ai");
 
     // 尝试从 z.ai 获取模型
     let client = reqwest::Client::new();
-    let resp = client.get(format!("{}/v1/models", base_url))
+    let resp = client
+        .get(format!("{}/v1/models", base_url))
         .header("Authorization", format!("Bearer {}", api_key))
         .send()
         .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
 
     let data: serde_json::Value = resp.json().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
     })?;
 
     // 提取模型 ID 列表
-    let models = data.get("data").and_then(|v| v.as_array())
+    let models = data
+        .get("data")
+        .and_then(|v| v.as_array())
         .map(|arr| {
-            arr.iter().filter_map(|m| m.get("id").and_then(|id| id.as_str().map(|s| s.to_string()))).collect::<Vec<String>>()
+            arr.iter()
+                .filter_map(|m| {
+                    m.get("id")
+                        .and_then(|id| id.as_str().map(|s| s.to_string()))
+                })
+                .collect::<Vec<String>>()
         })
         .unwrap_or_default();
 
@@ -1080,7 +1249,10 @@ async fn admin_set_proxy_monitor_enabled(
     State(state): State<AppState>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let enabled = payload.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+    let enabled = payload
+        .get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     state.monitor.set_enabled(enabled);
     logger::log_info(&format!("[API] 监控状态已设置为: {}", enabled));
     StatusCode::OK
@@ -1089,8 +1261,13 @@ async fn admin_set_proxy_monitor_enabled(
 async fn admin_get_proxy_logs_count_filtered(
     Query(params): Query<LogsRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let count = proxy_db::get_logs_count_filtered(&params.filter, params.errors_only)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    let count =
+        proxy_db::get_logs_count_filtered(&params.filter, params.errors_only).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(count))
 }
 
@@ -1103,8 +1280,12 @@ async fn admin_clear_proxy_logs() -> impl IntoResponse {
 async fn admin_get_proxy_log_detail(
     Path(log_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let log = crate::modules::proxy_db::get_log_detail(&log_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    let log = crate::modules::proxy_db::get_log_detail(&log_id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(Json(log))
 }
 
@@ -1129,7 +1310,13 @@ async fn admin_get_proxy_logs_filtered(
         params.errors_only,
         params.limit,
         params.offset,
-    ).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(Json(logs))
 }
 
@@ -1149,63 +1336,132 @@ struct StatsPeriodQuery {
     weeks: Option<i64>,
 }
 
-async fn admin_get_token_stats_hourly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_hourly_stats(p.hours.unwrap_or(24))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_hourly(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats =
+        crate::modules::token_stats::get_hourly_stats(p.hours.unwrap_or(24)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_daily(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_daily_stats(p.days.unwrap_or(7))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_daily(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats = crate::modules::token_stats::get_daily_stats(p.days.unwrap_or(7)).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_weekly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_weekly_stats(p.weeks.unwrap_or(4))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_weekly(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats =
+        crate::modules::token_stats::get_weekly_stats(p.weeks.unwrap_or(4)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_by_account(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_account_stats(p.hours.unwrap_or(168))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_by_account(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats =
+        crate::modules::token_stats::get_account_stats(p.hours.unwrap_or(168)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_summary(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_summary_stats(p.hours.unwrap_or(168))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_summary(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats =
+        crate::modules::token_stats::get_summary_stats(p.hours.unwrap_or(168)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_by_model(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_model_stats(p.hours.unwrap_or(168))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_by_model(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats =
+        crate::modules::token_stats::get_model_stats(p.hours.unwrap_or(168)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_model_trend_hourly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+async fn admin_get_token_stats_model_trend_hourly(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = crate::modules::token_stats::get_model_trend_hourly(p.hours.unwrap_or(24))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_model_trend_daily(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_model_trend_daily(p.days.unwrap_or(7))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_model_trend_daily(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats =
+        crate::modules::token_stats::get_model_trend_daily(p.days.unwrap_or(7)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_account_trend_hourly(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+async fn admin_get_token_stats_account_trend_hourly(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let stats = crate::modules::token_stats::get_account_trend_hourly(p.hours.unwrap_or(24))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
-async fn admin_get_token_stats_account_trend_daily(Query(p): Query<StatsPeriodQuery>) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let stats = crate::modules::token_stats::get_account_trend_daily(p.days.unwrap_or(7))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_token_stats_account_trend_daily(
+    Query(p): Query<StatsPeriodQuery>,
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let stats =
+        crate::modules::token_stats::get_account_trend_daily(p.days.unwrap_or(7)).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(stats))
 }
 
@@ -1223,22 +1479,39 @@ async fn admin_get_data_dir_path() -> impl IntoResponse {
     }
 }
 
-async fn admin_should_check_updates() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let settings = crate::modules::update_checker::load_update_settings()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_should_check_updates() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>
+{
+    let settings = crate::modules::update_checker::load_update_settings().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     let should = crate::modules::update_checker::should_check_for_updates(&settings);
     Ok(Json(should))
 }
 
-async fn admin_get_antigravity_path() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let path = crate::commands::get_antigravity_path(Some(true)).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_antigravity_path() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>
+{
+    let path = crate::commands::get_antigravity_path(Some(true))
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(path))
 }
 
-async fn admin_get_antigravity_args() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let args = crate::commands::get_antigravity_args().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_get_antigravity_args() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>
+{
+    let args = crate::commands::get_antigravity_args().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(Json(args))
 }
 
@@ -1250,24 +1523,37 @@ async fn admin_get_update_settings() -> impl IntoResponse {
             "auto_check": true,
             "last_check_time": 0,
             "check_interval_hours": 24
-        }))
+        })),
     }
 }
 
 async fn admin_check_for_updates() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let info = crate::modules::update_checker::check_for_updates().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    let info = crate::modules::update_checker::check_for_updates()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(info))
 }
 
-async fn admin_update_last_check_time() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::modules::update_checker::update_last_check_time()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_update_last_check_time(
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    crate::modules::update_checker::update_last_check_time().map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(StatusCode::OK)
 }
 
 async fn admin_save_update_settings(Json(settings): Json<serde_json::Value>) -> impl IntoResponse {
-    if let Ok(s) = serde_json::from_value::<crate::modules::update_checker::UpdateSettings>(settings) {
+    if let Ok(s) =
+        serde_json::from_value::<crate::modules::update_checker::UpdateSettings>(settings)
+    {
         let _ = crate::modules::update_checker::save_update_settings(&s);
         StatusCode::OK
     } else {
@@ -1301,8 +1587,12 @@ struct BulkDeleteRequest {
 async fn admin_delete_accounts(
     Json(payload): Json<BulkDeleteRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::modules::account::delete_accounts(&payload.account_ids)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    crate::modules::account::delete_accounts(&payload.account_ids).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(StatusCode::OK)
 }
 
@@ -1315,23 +1605,43 @@ struct ReorderRequest {
 async fn admin_reorder_accounts(
     Json(payload): Json<ReorderRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::modules::account::reorder_accounts(&payload.account_ids)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    crate::modules::account::reorder_accounts(&payload.account_ids).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(StatusCode::OK)
 }
 
 async fn admin_fetch_account_quota(
     Path(account_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let mut account = crate::modules::load_account(&account_id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    
-    let quota = crate::modules::account::fetch_quota_with_retry(&mut account).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })))?;
-    
-    crate::modules::update_account_quota(&account_id, quota.clone())
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
-    
+    let mut account = crate::modules::load_account(&account_id).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
+    let quota = crate::modules::account::fetch_quota_with_retry(&mut account)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: e.to_string(),
+                }),
+            )
+        })?;
+
+    crate::modules::update_account_quota(&account_id, quota.clone()).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
+
     Ok(Json(quota))
 }
 
@@ -1347,8 +1657,17 @@ async fn admin_toggle_proxy_status(
     Path(account_id): Path<String>,
     Json(payload): Json<ToggleProxyRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::modules::account::toggle_proxy_status(&account_id, payload.enable, payload.reason.as_deref())
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    crate::modules::account::toggle_proxy_status(
+        &account_id,
+        payload.enable,
+        payload.reason.as_deref(),
+    )
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
 
     // 同步到运行中的反代服务
     let _ = state.token_manager.reload_account(&account_id).await;
@@ -1356,17 +1675,28 @@ async fn admin_toggle_proxy_status(
     Ok(StatusCode::OK)
 }
 
-async fn admin_warm_up_all_accounts() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let result = crate::commands::warm_up_all_accounts().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+async fn admin_warm_up_all_accounts() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)>
+{
+    let result = crate::commands::warm_up_all_accounts().await.map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(Json(result))
 }
 
 async fn admin_warm_up_account(
     Path(account_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let result = crate::commands::warm_up_account(account_id).await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    let result = crate::commands::warm_up_account(account_id)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(result))
 }
 
@@ -1380,16 +1710,26 @@ struct SaveFileRequest {
 async fn admin_save_text_file(
     Json(payload): Json<SaveFileRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    std::fs::write(&payload.path, &payload.content)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e.to_string() })))?;
+    std::fs::write(&payload.path, &payload.content).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: e.to_string(),
+            }),
+        )
+    })?;
     Ok(StatusCode::OK)
 }
 
 async fn admin_save_http_api_settings(
     Json(payload): Json<crate::modules::http_api::HttpApiSettings>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::modules::http_api::save_settings(&payload)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    crate::modules::http_api::save_settings(&payload).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
+    })?;
     Ok(StatusCode::OK)
 }
 
@@ -1397,8 +1737,16 @@ async fn admin_save_http_api_settings(
 async fn admin_cloudflared_get_status(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    state.cloudflared_state.ensure_manager().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    state
+        .cloudflared_state
+        .ensure_manager()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
 
     let lock = state.cloudflared_state.manager.read().await;
     if let Some(manager) = lock.as_ref() {
@@ -1412,23 +1760,42 @@ async fn admin_cloudflared_get_status(
         }
         Ok(Json(status))
     } else {
-        Ok(Json(crate::modules::cloudflared::CloudflaredStatus::default()))
+        Ok(Json(
+            crate::modules::cloudflared::CloudflaredStatus::default(),
+        ))
     }
 }
 
 async fn admin_cloudflared_install(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    state.cloudflared_state.ensure_manager().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    state
+        .cloudflared_state
+        .ensure_manager()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
 
     let lock = state.cloudflared_state.manager.read().await;
     if let Some(manager) = lock.as_ref() {
-        let status = manager.install().await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+        let status = manager.install().await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
         Ok(Json(status))
     } else {
-        Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "Manager not initialized".to_string() })))
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Manager not initialized".to_string(),
+            }),
+        ))
     }
 }
 
@@ -1442,32 +1809,66 @@ async fn admin_cloudflared_start(
     State(state): State<AppState>,
     Json(payload): Json<CloudflaredStartRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    state.cloudflared_state.ensure_manager().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    state
+        .cloudflared_state
+        .ensure_manager()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
 
     let lock = state.cloudflared_state.manager.read().await;
     if let Some(manager) = lock.as_ref() {
-        let status = manager.start(payload.config).await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+        let status = manager.start(payload.config).await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
         Ok(Json(status))
     } else {
-        Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "Manager not initialized".to_string() })))
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Manager not initialized".to_string(),
+            }),
+        ))
     }
 }
 
 async fn admin_cloudflared_stop(
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    state.cloudflared_state.ensure_manager().await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+    state
+        .cloudflared_state
+        .ensure_manager()
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
 
     let lock = state.cloudflared_state.manager.read().await;
     if let Some(manager) = lock.as_ref() {
-        let status = manager.stop().await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+        let status = manager.stop().await.map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
         Ok(Json(status))
     } else {
-        Err((StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "Manager not initialized".to_string() })))
+        Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "Manager not initialized".to_string(),
+            }),
+        ))
     }
 }
 
@@ -1478,7 +1879,10 @@ async fn admin_get_device_profiles(
     Path(account_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let profiles = account::get_device_profiles(&account_id).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(profiles))
 }
@@ -1488,12 +1892,16 @@ async fn admin_list_device_versions(
     Path(account_id): Path<String>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let profiles = account::get_device_profiles(&account_id).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(profiles))
 }
 
-async fn admin_preview_generate_profile() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+async fn admin_preview_generate_profile(
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let profile = crate::modules::device::generate_profile();
     Ok(Json(profile))
 }
@@ -1503,15 +1911,23 @@ async fn admin_bind_device_profile_with_profile(
     Path(account_id): Path<String>,
     Json(profile): Json<crate::models::account::DeviceProfile>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let result = account::bind_device_profile_with_profile(&account_id, profile, None).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
+    let result =
+        account::bind_device_profile_with_profile(&account_id, profile, None).map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     Ok(Json(result))
 }
 
-async fn admin_restore_original_device() -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+async fn admin_restore_original_device(
+) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let msg = account::restore_original_device().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(msg))
 }
@@ -1521,7 +1937,10 @@ async fn admin_restore_device_version(
     Path((account_id, version_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let profile = account::restore_device_version(&account_id, &version_id).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(profile))
 }
@@ -1531,7 +1950,10 @@ async fn admin_delete_device_version(
     Path((account_id, version_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     account::delete_device_version(&account_id, &version_id).map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -1540,7 +1962,10 @@ async fn admin_open_folder() -> Result<impl IntoResponse, (StatusCode, Json<Erro
     // Note: In Web mode, this may not actually open a local folder unless the backend handles it.
     // For ABV_Refactor, the backend should use opener to open it on the server (the desktop).
     crate::commands::open_data_folder().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(StatusCode::OK)
 }
@@ -1551,12 +1976,21 @@ async fn admin_import_v1_accounts(
     State(_state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let accounts = migration::import_from_v1().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     let current_id = _state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
-    let responses: Vec<AccountResponse> = accounts.iter().map(|a| to_account_response(a, &current_id)).collect();
+    let responses: Vec<AccountResponse> = accounts
+        .iter()
+        .map(|a| to_account_response(a, &current_id))
+        .collect();
     Ok(Json(responses))
 }
 
@@ -1564,10 +1998,16 @@ async fn admin_import_from_db(
     State(_state): State<AppState>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
     let account = migration::import_from_db().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     let current_id = _state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(to_account_response(&account, &current_id)))
 }
@@ -1581,11 +2021,19 @@ async fn admin_import_custom_db(
     State(_state): State<AppState>,
     Json(payload): Json<CustomDbRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    let account = migration::import_from_custom_db_path(payload.path).await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
-    })?;
+    let account = migration::import_from_custom_db_path(payload.path)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
     let current_id = _state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(to_account_response(&account, &current_id)))
 }
@@ -1601,7 +2049,10 @@ async fn admin_sync_account_from_db(
         }
     };
     let curr_account = account::get_current_account().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
 
     if let Some(acc) = curr_account {
@@ -1611,10 +2062,16 @@ async fn admin_sync_account_from_db(
     }
 
     let account = migration::import_from_db().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     let current_id = _state.account_service.get_current_id().map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )
     })?;
     Ok(Json(Some(to_account_response(&account, &current_id))))
 }
@@ -1631,9 +2088,15 @@ struct CliSyncStatusRequest {
 async fn admin_get_cli_sync_status(
     Json(payload): Json<CliSyncStatusRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::proxy::cli_sync::get_cli_sync_status(payload.app_type, payload.proxy_url).await
+    crate::proxy::cli_sync::get_cli_sync_status(payload.app_type, payload.proxy_url)
+        .await
         .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })
 }
 
 #[derive(Deserialize)]
@@ -1647,9 +2110,15 @@ struct CliSyncRequest {
 async fn admin_execute_cli_sync(
     Json(payload): Json<CliSyncRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::proxy::cli_sync::execute_cli_sync(payload.app_type, payload.proxy_url, payload.api_key).await
+    crate::proxy::cli_sync::execute_cli_sync(payload.app_type, payload.proxy_url, payload.api_key)
+        .await
         .map(|_| StatusCode::OK)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })
 }
 
 #[derive(Deserialize)]
@@ -1661,9 +2130,15 @@ struct CliRestoreRequest {
 async fn admin_execute_cli_restore(
     Json(payload): Json<CliRestoreRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::proxy::cli_sync::execute_cli_restore(payload.app_type).await
+    crate::proxy::cli_sync::execute_cli_restore(payload.app_type)
+        .await
         .map(|_| StatusCode::OK)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })
 }
 
 #[derive(Deserialize)]
@@ -1676,9 +2151,15 @@ struct CliConfigContentRequest {
 async fn admin_get_cli_config_content(
     Json(payload): Json<CliConfigContentRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, Json<ErrorResponse>)> {
-    crate::proxy::cli_sync::get_cli_config_content(payload.app_type, payload.file_name).await
+    crate::proxy::cli_sync::get_cli_config_content(payload.app_type, payload.file_name)
+        .await
         .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })
 }
 
 #[derive(Deserialize)]
@@ -1693,38 +2174,48 @@ async fn handle_oauth_callback(
     Query(params): Query<OAuthParams>,
     headers: HeaderMap,
     State(state): State<AppState>,
-) ->  Result<Html<String>, StatusCode> {
+) -> Result<Html<String>, StatusCode> {
     let code = params.code;
 
     // Exchange token
     // 我们需要在这里直接完成 token 交换
     let port = state.security.read().await.port;
     let host = headers.get("host").and_then(|h| h.to_str().ok());
-    let proto = headers.get("x-forwarded-proto").and_then(|h| h.to_str().ok());
+    let proto = headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok());
     let redirect_uri = get_oauth_redirect_uri(port, host, proto);
 
-    match state.token_manager.exchange_code(&code, &redirect_uri).await {
+    match state
+        .token_manager
+        .exchange_code(&code, &redirect_uri)
+        .await
+    {
         Ok(refresh_token) => {
             // 获取邮箱 (可选，TokenManager.add_account 内部会再获取一次用户信息，这里主要是为了快速响应)
             // 为了简化，我们直接调用 add_account，它会处理一切
-            
+
             // 下面这段逻辑模拟了 modules::account::add_account 的行为
             // 但为了复用，我们最好直接调用 TokenManager 的方法，或者 modules::account 的方法
             // 由于 modules::account::add_account 依赖 AppHandle (Tauri), 这里我们不能直接用。
             // 必须依赖 TokenManager 的纯 Rust 实现。
-            
+
             // 1. 获取用户信息
-             match state.token_manager.get_user_info(&refresh_token).await {
+            match state.token_manager.get_user_info(&refresh_token).await {
                 Ok(user_info) => {
-                     let email = user_info.email;
-                     // 2. 添加到 TokenManager (内部会保存)
-                     if let Err(e) = state.token_manager.add_account(&email, &refresh_token).await {
+                    let email = user_info.email;
+                    // 2. 添加到 TokenManager (内部会保存)
+                    if let Err(e) = state
+                        .token_manager
+                        .add_account(&email, &refresh_token)
+                        .await
+                    {
                         error!("Failed to add account: {}", e);
-                         return Ok(Html(format!(
+                        return Ok(Html(format!(
                             r#"<html><body><h1>Authorization Failed</h1><p>Failed to save account: {}</p></body></html>"#,
                             e
                         )));
-                     }
+                    }
                 }
                 Err(e) => {
                     error!("Failed to get user info: {}", e);
@@ -1733,10 +2224,11 @@ async fn handle_oauth_callback(
                         e
                     )));
                 }
-             }
+            }
 
             // Success HTML
-             Ok(Html(format!(r#"
+            Ok(Html(format!(
+                r#"
                 <!DOCTYPE html>
                 <html>
                 <head>
@@ -1764,8 +2256,9 @@ async fn handle_oauth_callback(
                     </script>
                 </body>
                 </html>
-            "#)))
-        },
+            "#
+            )))
+        }
         Err(e) => {
             error!("OAuth exchange failed: {}", e);
             Ok(Html(format!(
@@ -1779,13 +2272,17 @@ async fn handle_oauth_callback(
 async fn admin_prepare_oauth_url_web(
     headers: HeaderMap,
     State(state): State<AppState>,
-) ->  Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    let port = state.security.read().await.port; 
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let port = state.security.read().await.port;
     let host = headers.get("host").and_then(|h| h.to_str().ok());
-    let proto = headers.get("x-forwarded-proto").and_then(|h| h.to_str().ok());
+    let proto = headers
+        .get("x-forwarded-proto")
+        .and_then(|h| h.to_str().ok());
     let redirect_uri = get_oauth_redirect_uri(port, host, proto);
-    
-    let url = state.token_manager.get_oauth_url_with_redirect(&redirect_uri);
+
+    let url = state
+        .token_manager
+        .get_oauth_url_with_redirect(&redirect_uri);
     Ok(Json(serde_json::json!({ "url": url })))
 }
 
@@ -1803,4 +2300,3 @@ fn get_oauth_redirect_uri(port: u16, host: Option<&str>, proto: Option<&str>) ->
         format!("http://localhost:{}/auth/callback", port)
     }
 }
-

@@ -1417,56 +1417,121 @@ pub async fn handle_images_generations(
 
     for _ in 0..n {
         let upstream = upstream.clone();
-        let access_token = access_token.clone();
-        let project_id = project_id.clone();
+        let token_manager = token_manager.clone();
+        let project_id_outer = project_id.clone(); // Fallback prompt_id if needed, though we get new one with token
         let final_prompt = final_prompt.clone();
-        let image_config = image_config.clone(); // 使用解析后的完整配置
+        let image_config = image_config.clone();
         let _response_format = response_format.to_string();
-
         let model_to_use = "gemini-3-pro-image".to_string();
 
         tasks.push(tokio::spawn(async move {
-            let gemini_body = json!({
-                "project": project_id,
-                "requestId": format!("agent-{}", uuid::Uuid::new_v4()),
-                "model": model_to_use,
-                "userAgent": "antigravity",
-                "requestType": "image_gen",
-                "request": {
-                    "contents": [{
-                        "role": "user",
-                        "parts": [{"text": final_prompt}]
-                    }],
-                    "generationConfig": {
-                        "candidateCount": 1, // 强制单张
-                        "imageConfig": image_config // ✅ 使用完整配置（包含 aspectRatio 和 imageSize）
-                    },
-                    "safetySettings": [
-                        { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF" },
-                        { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF" },
-                        { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF" },
-                        { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF" },
-                        { "category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF" },
-                    ]
-                }
-            });
+            let mut attempts = 0;
+            let max_attempts = 15; // Aggressive retry for 503 Capacity Exhausted
+            let mut last_error = String::new();
 
-            match upstream
-                .call_v1_internal("generateContent", &access_token, gemini_body, None)
-                .await
-            {
-                Ok(response) => {
-                    let status = response.status();
-                    if !status.is_success() {
-                        let err_text = response.text().await.unwrap_or_default();
-                        return Err(format!("Upstream error {}: {}", status, err_text));
+            loop {
+                // 1. Get Token (Rotate on retry)
+                let (access_token, project_id, email, _mapped_model) = match token_manager
+                    .get_token("image_gen", attempts > 0, None, &model_to_use)
+                    .await
+                {
+                    Ok((token, pid, email)) => (token, pid, email, model_to_use.clone()),
+                    Err(e) => {
+                        last_error = format!("Token error: {}", e);
+                        if attempts >= max_attempts - 1 {
+                            return Err(last_error);
+                        }
+                        attempts += 1;
+                        continue;
                     }
-                    match response.json::<Value>().await {
-                        Ok(json) => Ok(json),
-                        Err(e) => Err(format!("Parse error: {}", e)),
+                };
+
+                let gemini_body = json!({
+                    "project": project_id,
+                    "requestId": format!("agent-{}", uuid::Uuid::new_v4()),
+                    "model": model_to_use,
+                    "userAgent": "antigravity",
+                    "requestType": "image_gen",
+                    "request": {
+                        "contents": [{
+                            "role": "user",
+                            "parts": [{"text": final_prompt}]
+                        }],
+                        "generationConfig": {
+                            "candidateCount": 1,
+                            "imageConfig": image_config
+                        },
+                        "safetySettings": [
+                            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF" },
+                        ]
+                    }
+                });
+
+                match upstream
+                    .call_v1_internal("generateContent", &access_token, gemini_body, None)
+                    .await
+                {
+                    Ok(response) => {
+                        let status = response.status();
+                        let status_code = status.as_u16();
+
+                        if !status.is_success() {
+                            let err_text = response.text().await.unwrap_or_default();
+
+                            // 3. Rate Limit / Capacity Handling
+                            if status_code == 429
+                                || status_code == 529
+                                || status_code == 503
+                                || status_code == 500
+                            {
+                                tracing::warn!(
+                                    "[Images] Upstream {} on {}, rotating...",
+                                    status_code,
+                                    email
+                                );
+
+                                token_manager
+                                    .mark_rate_limited_async(
+                                        &email,
+                                        status_code,
+                                        None,
+                                        &err_text,
+                                        Some(&model_to_use),
+                                    )
+                                    .await;
+
+                                last_error = format!("Upstream error {}: {}", status, err_text);
+                                attempts += 1;
+                                if attempts < max_attempts {
+                                    continue; // Retry with new account
+                                }
+                                return Err(last_error);
+                            }
+
+                            // Non-retryable error
+                            return Err(format!("Upstream error {}: {}", status, err_text));
+                        }
+
+                        // Success!
+                        match response.json::<Value>().await {
+                            Ok(json) => return Ok(json),
+                            Err(e) => return Err(format!("Parse error: {}", e)),
+                        }
+                    }
+                    Err(e) => {
+                        last_error = format!("Network error: {}", e);
+                        attempts += 1;
+                        if attempts < max_attempts {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            continue;
+                        }
+                        return Err(last_error);
                     }
                 }
-                Err(e) => Err(format!("Network error: {}", e)),
             }
         }));
     }
@@ -1746,61 +1811,128 @@ pub async fn handle_images_edits(
     }
 
     // 4. Construct Request Body
-    let mut gemini_body = json!({
-        "project": project_id,
-        "requestId": format!("img-edit-{}", uuid::Uuid::new_v4()),
-        "model": model,
-        "userAgent": "antigravity",
-        "requestType": "image_gen",
-        "request": {
-            "contents": [{
-                "role": "user",
-                "parts": contents_parts
-            }],
-            "generationConfig": {
-                "candidateCount": 1,
-                "imageConfig": image_config, // Use parsed config
-                "maxOutputTokens": 8192,
-                "stopSequences": [],
-                "temperature": 1.0,
-                "topP": 0.95,
-                "topK": 40
-            },
-            "safetySettings": [
-                { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF" },
-                { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF" },
-                { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF" },
-                { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF" },
-                { "category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF" },
-            ]
-        }
-    });
-
     // 5. Execute Requests (Parallel for n > 1)
     let mut tasks = Vec::new();
     for _ in 0..n {
         let upstream = upstream.clone();
-        let access_token = access_token.clone();
-        let body = gemini_body.clone();
+        let token_manager = token_manager.clone();
+        let model_to_use = model.clone(); // Use passed model variable
+        let contents_parts = contents_parts.clone();
+        let image_config = image_config.clone();
 
         tasks.push(tokio::spawn(async move {
-            match upstream
-                .call_v1_internal("generateContent", &access_token, body, None)
-                .await
-            {
-                Ok(response) => {
-                    let status = response.status();
-                    if !status.is_success() {
-                        let err_text = response.text().await.unwrap_or_default();
-                        return Err(format!("Upstream error {}: {}", status, err_text));
+            let mut attempts = 0;
+            let max_attempts = 15; // Aggressive retry for 503 Capacity Exhausted
+            let mut last_error = String::new();
+
+            loop {
+                // 1. Get Token (Rotate on retry)
+                let (access_token, project_id, email, _mapped_model) = match token_manager
+                    .get_token("image_gen", attempts > 0, None, &model_to_use)
+                    .await
+                {
+                    Ok((token, pid, email)) => (token, pid, email, model_to_use.clone()),
+                    Err(e) => {
+                        last_error = format!("Token error: {}", e);
+                        if attempts >= max_attempts - 1 {
+                            return Err(last_error);
+                        }
+                        attempts += 1;
+                        continue;
                     }
-                    match response.json::<Value>().await {
-                        Ok(json) => Ok(json),
-                        Err(e) => Err(format!("Parse error: {}", e)),
+                };
+
+                // Re-construct body with new project_id
+                let gemini_body = json!({
+                    "project": project_id,
+                    "requestId": format!("img-edit-{}", uuid::Uuid::new_v4()),
+                    "model": model_to_use,
+                    "userAgent": "antigravity",
+                    "requestType": "image_gen",
+                    "request": {
+                        "contents": [{
+                            "role": "user",
+                            "parts": contents_parts
+                        }],
+                        "generationConfig": {
+                            "candidateCount": 1,
+                            "imageConfig": image_config,
+                            "maxOutputTokens": 8192,
+                            "stopSequences": [],
+                            "temperature": 1.0,
+                            "topP": 0.95,
+                            "topK": 40
+                        },
+                        "safetySettings": [
+                            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "OFF" },
+                            { "category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "OFF" },
+                        ]
+                    }
+                });
+
+                match upstream
+                    .call_v1_internal("generateContent", &access_token, gemini_body, None)
+                    .await
+                {
+                    Ok(response) => {
+                        let status = response.status();
+                        let status_code = status.as_u16();
+
+                        if !status.is_success() {
+                            let err_text = response.text().await.unwrap_or_default();
+
+                            // 3. Rate Limit / Capacity Handling
+                            if status_code == 429
+                                || status_code == 529
+                                || status_code == 503
+                                || status_code == 500
+                            {
+                                tracing::warn!(
+                                    "[Images] Edit Upstream {} on {}, rotating...",
+                                    status_code,
+                                    email
+                                );
+
+                                token_manager
+                                    .mark_rate_limited_async(
+                                        &email,
+                                        status_code,
+                                        None,
+                                        &err_text,
+                                        Some(&model_to_use),
+                                    )
+                                    .await;
+
+                                last_error = format!("Upstream error {}: {}", status, err_text);
+                                attempts += 1;
+                                if attempts < max_attempts {
+                                    continue; // Retry with new account
+                                }
+                                return Err(last_error);
+                            }
+
+                            return Err(format!("Upstream error {}: {}", status, err_text));
+                        }
+
+                        match response.json::<Value>().await {
+                            Ok(json) => return Ok(json),
+                            Err(e) => return Err(format!("Parse error: {}", e)),
+                        }
+                    }
+                    Err(e) => {
+                        last_error = format!("Network error: {}", e);
+                        attempts += 1;
+                        if attempts < max_attempts {
+                            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                            continue;
+                        }
+                        return Err(last_error);
                     }
                 }
-                Err(e) => Err(format!("Network error: {}", e)),
-            }
+            } // loop
         }));
     }
 
