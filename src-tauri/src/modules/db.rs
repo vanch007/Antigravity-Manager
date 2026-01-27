@@ -62,12 +62,13 @@ pub fn get_db_path() -> Result<PathBuf, String> {
     }
 }
 
-/// Inject Token into database
+/// Inject Token and Email into database
 pub fn inject_token(
     db_path: &PathBuf,
     access_token: &str,
     refresh_token: &str,
     expiry: i64,
+    email: &str,
 ) -> Result<String, String> {
     // 1. Open database
     let conn = Connection::open(db_path).map_err(|e| format!("Failed to open database: {}", e))?;
@@ -86,14 +87,22 @@ pub fn inject_token(
         .decode(&current_data)
         .map_err(|e| format!("Base64 decoding failed: {}", e))?;
 
-    // 4. Remove old Field 6
-    let clean_data = protobuf::remove_field(&blob, 6)?;
+    // 4. Remove old Identity and Token fields
+    // Field 1: UserID
+    // Field 2: Email
+    // Field 6: OAuthTokenInfo
+    let mut clean_data = protobuf::remove_field(&blob, 1)?;
+    clean_data = protobuf::remove_field(&clean_data, 2)?;
+    clean_data = protobuf::remove_field(&clean_data, 6)?;
 
-    // 5. Create new Field 6
-    let new_field = protobuf::create_oauth_field(access_token, refresh_token, expiry);
+    // 5. Create new fields
+    let new_email_field = protobuf::create_email_field(email);
+    let new_oauth_field = protobuf::create_oauth_field(access_token, refresh_token, expiry);
 
     // 6. Merge data
-    let final_data = [clean_data, new_field].concat();
+    // We intentionally do NOT re-inject Field 1 (UserID) to force the client 
+    // to re-authenticate the session with the new token.
+    let final_data = [clean_data, new_email_field, new_oauth_field].concat();
     let final_b64 = general_purpose::STANDARD.encode(&final_data);
 
     // 7. Write to database
@@ -111,5 +120,5 @@ pub fn inject_token(
     )
     .map_err(|e| format!("Failed to write Onboarding flag: {}", e))?;
 
-    Ok(format!("Token injection successful!\nDatabase: {:?}", db_path))
+    Ok(format!("Token and Identity injection successful!\nDatabase: {:?}", db_path))
 }

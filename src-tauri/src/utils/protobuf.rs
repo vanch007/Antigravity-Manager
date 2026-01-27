@@ -172,3 +172,12 @@ pub fn create_oauth_field(access_token: &str, refresh_token: &str, expiry: i64) 
 
     field6
 }
+
+/// Create Email (Field 2)
+pub fn create_email_field(email: &str) -> Vec<u8> {
+    let tag = (2 << 3) | 2;
+    let mut f = encode_varint(tag);
+    f.extend(encode_varint(email.len() as u64));
+    f.extend(email.as_bytes());
+    f
+}

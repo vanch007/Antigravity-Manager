@@ -47,6 +47,7 @@ impl SystemIntegration for DesktopIntegration {
             &account.token.access_token,
             &account.token.refresh_token,
             account.token.expiry_timestamp,
+            &account.email,
         )?;
 
         // 5. 重启外部进程

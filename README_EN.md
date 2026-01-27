@@ -1,6 +1,6 @@
 # Antigravity Tools 🚀
 # Antigravity Tools 🚀
-> Professional AI Account Management & Proxy System (v4.0.1)
+> Professional AI Account Management & Proxy System (v4.0.3)
 
 <div align="center">
   <img src="public/icon.png" alt="Antigravity Logo" width="120" height="120" style="border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
@@ -10,7 +10,7 @@
   
   <p>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.0.1-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.0.3-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -80,7 +80,7 @@ If you find this project helpful, feel free to buy me a coffee!
 
 ### 5. 🎨 Multimodal & Imagen 3 Support
 *   **Advanced Image Control**: Supports precise control over image generation tasks via OpenAI `size` (e.g., `1024x1024`, `16:9`) parameters or model name suffixes.
-*   **Enhanced Payload Support**: The backend supports payloads up to **100MB**, more than enough for 4K HD image recognition and processing.
+*   **Enhanced Payload Support**: The backend supports payloads up to **100MB** (configurable), more than enough for 4K HD image recognition and processing.
 
 ##  GUI Overview
 
@@ -151,11 +151,42 @@ Download from [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/re
 *   **Linux**: `.deb` or `AppImage`
 
 ### Option C: Docker Deployment (Recommended for NAS/Servers)
-If you prefer running in a containerized environment, we provide a native Docker image. This image supports the v4.0.1 Native Headless architecture, automatically hosts frontend static resources, and allows for direct browser-based management.
+If you prefer running in a containerized environment, we provide a native Docker image. This image supports the v4.0.3 Native Headless architecture, automatically hosts frontend static resources, and allows for direct browser-based management.
 
 ```bash
 # Option 1: Direct Run (Recommended)
-docker run -d --name antigravity-manager -p 8045:8045 -v ~/.antigravity_tools:/root/.antigravity_tools lbjlaq/antigravity-manager:latest
+# - API_KEY: Required. Used for AI request authentication.
+# - WEB_PASSWORD: Optional. Used for Web UI login. Defaults to API_KEY if NOT set.
+docker run -d --name antigravity-manager \
+  -p 8045:8045 \
+  -e API_KEY=sk-your-api-key \
+  -e WEB_PASSWORD=your-login-password \
+  -e ABV_MAX_BODY_SIZE=104857600 \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+
+# Forgot keys? Run `docker logs antigravity-manager` or `grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json`
+
+#### 🔐 Authentication Scenarios
+*   **Scenario A: Only `API_KEY` is set**
+    - **Web Login**: Use `API_KEY` to access the dashboard.
+    - **API Calls**: Use `API_KEY` for AI request authentication.
+*   **Scenario B: Both `API_KEY` and `WEB_PASSWORD` are set (Recommended)**
+    - **Web Login**: **Must** use `WEB_PASSWORD`. Using API Key will be rejected (more secure).
+    - **API Calls**: Continue to use `API_KEY`. This allows you to share the API Key with team members while keeping the password for administrative access only.
+
+#### 🆙 Upgrade Guide for Older Versions
+If you are upgrading from v4.0.1 or earlier, your installation won't have a `WEB_PASSWORD` set by default. You can add one using any of these methods:
+1.  **Web UI (Recommended)**: Log in using your existing `API_KEY`, go to the **API Proxy Settings** page, find the **Web UI Management Password** section below the API Key, set your new password, and save.
+2.  **Environment Variable (Docker)**: Stop the old container and start the new one with the added parameter `-e WEB_PASSWORD=your_new_password`. **Note: Environment variables have the highest priority and will override any changes in the UI.**
+3.  **Config File (Persistent)**: Directly edit `~/.antigravity_tools/gui_config.json` and add/modify `"admin_password": "your_new_password"` inside the `proxy` object.
+    - *Note: `WEB_PASSWORD` is the environment variable name, while `admin_password` is the JSON key in the config file.*
+
+> [!TIP]
+> **Priority Logic**:
+> - **Environment Variable** (`WEB_PASSWORD`) has the highest priority. If set, the application will always use it and ignore values in the configuration file.
+> - **Configuration File** (`gui_config.json`) is used for persistent storage. When you change the password via Web UI and save, it is written here.
+> - **Fallback**: If neither is set, it falls back to `API_KEY`; if even `API_KEY` is missing, a random one is generated.
 
 # Option 2: Use Docker Compose
 # 1. Enter the Docker directory
@@ -216,6 +247,54 @@ print(response.choices[0].message.content)
 ## 📝 Developer & Community
 
 *   **Changelog**:
+    *   **v4.0.3 (2026-01-27)**:
+        -   **[Enhancement] Increase Body Limit to Support Large Image Payloads (PR #1167)**:
+            - Increased the default request body limit from 2MB to **100MB** to resolve 413 (Payload Too Large) errors during multi-image transfers.
+            - Added environment variable `ABV_MAX_BODY_SIZE` to allow dynamic adjustment of the maximum limit.
+            - Transparently logs the effective Body Limit on startup for easier troubleshooting.
+        -   **[Core Fix] Resolve Google OAuth Authorization Failure Due to Missing 'state' Parameter (Issue #1168)**:
+            - Fixed the "Agent execution terminated" error when adding Google accounts.
+            - Implemented random `state` parameter generation and callback verification to enhance OAuth security and compatibility.
+            - Ensured authorization flows comply with OAuth 2.0 standards in both desktop and web modes.
+        -   **[Core Fix] Resolve Proxy Toggle and Account Changes Requiring Restart in Docker/Web Mode (Issue #1166)**:
+            - Implemented persistent storage for proxy toggle states, ensuring consistency across container restarts.
+            - Added automatic hot-reloading of the Token Manager after adding, deleting, switching, reordering, or importing accounts, making changes effective immediately in the proxy service.
+            - Optimized account switching logic to automatically clear legacy session bindings, ensuring requests are immediately routed to the new account.
+    *   **v4.0.2 (2026-01-26)**:
+        -   **[Core Fix] Session Persistence After Account Switch (Fix Issue #1159)**:
+            - Enhanced database injection logic to synchronize identity info (Email) and clear legacy UserID cache during account switching.
+            - Resolved session association failures caused by mismatches between the new Token and old identity metadata.
+        -   **[Core Fix] Model Mapping Persistence in Docker/Web Mode (Fix Issue #1149)**:
+            - Resolved an issue where model mapping configurations modified via API in Docker or Web deployment modes were not saved to disk.
+            - Ensured the `admin_update_model_mapping` interface correctly invokes persistence logic, so configurations remain effective after container restarts.
+        -   **[Architecture Optimization] MCP Tool Support Architecture Upgrade (Schema Cleaning & Tool Adapters)**:
+            - **Constraint Semantic Backfilling (Constraint Hints)**:
+                - Implemented intelligent constraint migration mechanism that converts unsupported constraint fields (`minLength`, `pattern`, `format`, etc.) into description hints before removal.
+                - Added `CONSTRAINT_FIELDS` constant and `move_constraints_to_description` function to ensure models can understand original constraints through descriptions.
+                - Example: `{"minLength": 5}` → `{"description": "[Constraint: minLen: 5]"}`
+            - **Enhanced anyOf/oneOf Intelligent Flattening**:
+                - Rewrote `extract_best_schema_from_union` function with scoring mechanism to select the best type (object > array > scalar).
+                - Automatically adds `"Accepts: type1 | type2"` hints to descriptions after merging, preserving all possible type information.
+                - Added `get_schema_type_name` function supporting explicit types and structural inference.
+            - **Pluggable Tool Adapter Layer (Tool Adapter System)**:
+                - Created `ToolAdapter` trait providing customized Schema processing capabilities for different MCP tools.
+                - Implemented `PencilAdapter` that automatically adds descriptions for Pencil drawing tool's visual properties (`cornerRadius`, `strokeWidth`) and path parameters.
+                - Established global adapter registry supporting tool-specific optimizations via `clean_json_schema_for_tool` function.
+            - **High-Performance Cache Layer (Schema Cache)**:
+                - Implemented SHA-256 hash-based Schema caching mechanism to avoid redundant cleaning of identical schemas.
+                - Uses LRU eviction strategy with max 1000 entries, memory usage < 10MB.
+                - Provides `clean_json_schema_cached` function and cache statistics, expected 60%+ performance improvement.
+            - **Impact**: 
+                - ✅ Significantly improves Schema compatibility and model understanding for MCP tools (e.g., Pencil)
+                - ✅ Establishes pluggable foundation for adding more MCP tools (filesystem, database, etc.) in the future
+                - ✅ Fully backward compatible, all 25 tests passing
+        -   **[Security Enhancement] Web UI Management Password & API Key Separation (Fix Issue #1139)**:
+            - **Independent Password Configuration**: Support setting a separate management console login password via `ABV_WEB_PASSWORD` or `WEB_PASSWORD` environment variables.
+            - **Intelligent Authentication Logic**: 
+                - Management interfaces prioritize validating the independent password, automatically falling back to `API_KEY` if not set (ensuring backward compatibility).
+                - AI Proxy interfaces strictly only allow `API_KEY` for authentication, achieving permission isolation.
+            - **Configuration UI Support**: Added a management password editing item in "Dashboard - Service Config," supporting one-click retrieval or modification.
+            - **Log Guidance**: Headless mode startup clearly prints the status and retrieval methods for both API Key and Web UI Password.
     *   **v4.0.1 (2026-01-26)**:
         -   **[UX Optimization] Theme & Language Transition Smoothness**:
             - Resolved the UI freezing issue during theme and language switching by decoupling configuration persistence from the state update loop.

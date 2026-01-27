@@ -432,6 +432,13 @@
             "warning_key": "注意：請妥善保管您的 API 金鑰，不要洩露給他人。",
             "api_key_invalid": "API 密鑰格式無效,必須以 sk- 開頭且長度至少 10 個字符",
             "api_key_updated": "API 密鑰已更新",
+            "admin_password": "Web UI 管理後台密碼",
+            "admin_password_tooltip": "用於登錄 Web 管理後台的密碼。如果為空，則默認使用 API 密鑰（API Key）。",
+            "admin_password_default": "（同 API 密鑰）",
+            "admin_password_placeholder": "輸入新密碼，留空則使用 API 密鑰",
+            "admin_password_hint": "提示：在 Docker/Web 部署場景中，您可以設置一個獨立的登錄密碼，提高 API 密鑰的安全性。",
+            "admin_password_short": "密碼太短（最少 4 個字符）",
+            "admin_password_updated": "Web UI 登錄密碼已更新",
             "auth": {
                 "title": "存取授權",
                 "title_tooltip": "控制代理是否需要鑑權，以及哪些路由需要提供 API 金鑰。",
@@ -829,6 +836,15 @@
         "title": "發現新版本",
         "message": "新版本已準備就緒，包含多項最佳化與改進。當前版本: v{{current}}",
         "action": "立即更新"
+    },
+    "login": {
+        "title": "安全存取控制",
+        "desc": "當前運行在 Web 模式下，請輸入管理密碼或 API Key 以進入後台。",
+        "placeholder": "請輸入管理密碼或 API Key",
+        "btn_login": "驗證並進入",
+        "note": "注意：如果設置了獨立的管理密碼，請輸入管理密碼；否則請輸入 API_KEY。",
+        "lookup_hint": "如果您忘記了，請運行 docker logs antigravity-manager 尋找 Current API Key 或 Web UI Password",
+        "config_hint": "或執行 grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json 查看。"
     },
     "token_stats": {
         "title": "Token 消費統計",

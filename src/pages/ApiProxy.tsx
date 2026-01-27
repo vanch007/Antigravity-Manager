@@ -165,6 +165,10 @@ export default function ApiProxy() {
     const [isEditingApiKey, setIsEditingApiKey] = useState(false);
     const [tempApiKey, setTempApiKey] = useState('');
 
+    // Admin Password editing states
+    const [isEditingAdminPassword, setIsEditingAdminPassword] = useState(false);
+    const [tempAdminPassword, setTempAdminPassword] = useState('');
+
     // Modal states
     const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
     const [isRegenerateKeyConfirmOpen, setIsRegenerateKeyConfirmOpen] = useState(false);
@@ -701,6 +705,28 @@ export default function ApiProxy() {
         setIsEditingApiKey(false);
     };
 
+    // Admin Password editing functions
+    const handleEditAdminPassword = () => {
+        setTempAdminPassword(appConfig?.proxy.admin_password || '');
+        setIsEditingAdminPassword(true);
+    };
+
+    const handleSaveAdminPassword = () => {
+        // Validation: can be empty (meaning fallback to api_key) or at least 4 chars
+        if (tempAdminPassword && tempAdminPassword.length < 4) {
+            showToast(t('proxy.config.admin_password_short', { defaultValue: 'Password is too short (min 4 chars)' }), 'error');
+            return;
+        }
+        updateProxyConfig({ admin_password: tempAdminPassword || undefined });
+        setIsEditingAdminPassword(false);
+        showToast(t('proxy.config.admin_password_updated', { defaultValue: 'Web UI password updated' }), 'success');
+    };
+
+    const handleCancelEditAdminPassword = () => {
+        setTempAdminPassword('');
+        setIsEditingAdminPassword(false);
+    };
+
 
     const getPythonExample = (modelId: string) => {
         const port = status.running ? status.port : (appConfig?.proxy.port || 8045);
@@ -1130,6 +1156,75 @@ print(response.text)`;
                                 </div>
                                 <p className="mt-0.5 text-[10px] text-amber-600 dark:text-amber-500">
                                     {t('proxy.config.warning_key')}
+                                </p>
+                            </div>
+
+                            {/* Web UI 管理密码 */}
+                            <div className="border-t border-gray-200 dark:border-base-300 pt-3 mt-3">
+                                <label className="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    <span className="inline-flex items-center gap-1">
+                                        {t('proxy.config.admin_password', { defaultValue: 'Web UI Login Password' })}
+                                        <HelpTooltip
+                                            text={t('proxy.config.admin_password_tooltip', { defaultValue: 'Used for logging into the Web Management Console. If empty, it defaults to the API Key.' })}
+                                            ariaLabel={t('proxy.config.admin_password')}
+                                            placement="right"
+                                        />
+                                    </span>
+                                </label>
+                                <div className="flex gap-2">
+                                    <input
+                                        type="text"
+                                        value={isEditingAdminPassword ? tempAdminPassword : (appConfig.proxy.admin_password || t('proxy.config.admin_password_default', { defaultValue: '(Same as API Key)' }))}
+                                        onChange={(e) => isEditingAdminPassword && setTempAdminPassword(e.target.value)}
+                                        readOnly={!isEditingAdminPassword}
+                                        placeholder={t('proxy.config.admin_password_placeholder', { defaultValue: 'Enter new password or leave empty to use API Key' })}
+                                        className={`flex-1 px-2.5 py-1.5 border border-gray-300 dark:border-base-200 rounded-lg text-xs font-mono ${isEditingAdminPassword
+                                            ? 'bg-white dark:bg-base-200 text-gray-900 dark:text-base-content'
+                                            : 'bg-gray-50 dark:bg-base-300 text-gray-600 dark:text-gray-400'
+                                            }`}
+                                    />
+                                    {isEditingAdminPassword ? (
+                                        <>
+                                            <button
+                                                onClick={handleSaveAdminPassword}
+                                                className="px-2.5 py-1.5 border border-green-300 dark:border-green-700 rounded-lg bg-green-50 dark:bg-green-900/20 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors text-green-600 dark:text-green-400"
+                                                title={t('proxy.config.btn_save')}
+                                            >
+                                                <CheckCircle size={14} />
+                                            </button>
+                                            <button
+                                                onClick={handleCancelEditAdminPassword}
+                                                className="px-2.5 py-1.5 border border-gray-300 dark:border-base-200 rounded-lg bg-white dark:bg-base-200 hover:bg-gray-50 dark:hover:bg-base-300 transition-colors"
+                                                title={t('common.cancel')}
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <button
+                                                onClick={handleEditAdminPassword}
+                                                className="px-2.5 py-1.5 border border-gray-300 dark:border-base-200 rounded-lg bg-white dark:bg-base-200 hover:bg-gray-50 dark:hover:bg-base-300 transition-colors"
+                                                title={t('proxy.config.btn_edit')}
+                                            >
+                                                <Edit2 size={14} />
+                                            </button>
+                                            <button
+                                                onClick={() => copyToClipboardHandler(appConfig.proxy.admin_password || appConfig.proxy.api_key, 'admin_password')}
+                                                className="px-2.5 py-1.5 border border-gray-300 dark:border-base-200 rounded-lg bg-white dark:bg-base-200 hover:bg-gray-50 dark:hover:bg-base-300 transition-colors"
+                                                title={t('proxy.config.btn_copy')}
+                                            >
+                                                {copied === 'admin_password' ? (
+                                                    <CheckCircle size={14} className="text-green-500" />
+                                                ) : (
+                                                    <Copy size={14} />
+                                                )}
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
+                                <p className="mt-0.5 text-[10px] text-gray-500 dark:text-gray-400">
+                                    {t('proxy.config.admin_password_hint', { defaultValue: 'For safety in Docker/Browser environments, you can set a separate login password from your API Key.' })}
                                 </p>
                             </div>
 

@@ -1,5 +1,5 @@
 # Antigravity Tools 🚀
-> 专业的 AI 账号管理与协议反代系统 (v4.0.1)
+> 专业的 AI 账号管理与协议反代系统 (v4.0.3)
 <div align="center">
   <img src="public/icon.png" alt="Antigravity Logo" width="120" height="120" style="border-radius: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.15);">
 
@@ -8,7 +8,7 @@
   
   <p>
     <a href="https://github.com/lbjlaq/Antigravity-Manager">
-      <img src="https://img.shields.io/badge/Version-4.0.1-blue?style=flat-square" alt="Version">
+      <img src="https://img.shields.io/badge/Version-4.0.3-blue?style=flat-square" alt="Version">
     </a>
     <img src="https://img.shields.io/badge/Tauri-v2-orange?style=flat-square" alt="Tauri">
     <img src="https://img.shields.io/badge/Backend-Rust-red?style=flat-square" alt="Rust">
@@ -78,7 +78,7 @@
 
 ### 5. 🎨 多模态与 Imagen 3 支持
 *   **高级画质控制**: 支持通过 OpenAI `size` (如 `1024x1024`, `16:9`) 参数自动映射到 Imagen 3 的相应规格。
-*   **超强 Body 支持**: 后端支持高达 **100MB** 的 Payload，处理 4K 高清图识别绰绰有余。
+*   **超强 Body 支持**: 后端支持高达 **100MB** (可配置) 的 Payload，处理 4K 高清图识别绰绰有余。
 
 ## 📸 界面导览 (GUI Overview)
 
@@ -149,13 +149,42 @@ brew install --cask antigravity-tools
 *   **Linux**: `.deb` 或 `AppImage`
 
 ### 选项 C: Docker 部署 (推荐用于 NAS/服务器)
-如果您希望在容器化环境中运行，我们提供了原生的 Docker 镜像。该镜像内置了对 v4.0.1 原生 Headless 架构的支持，可自动托管前端静态资源，并通过浏览器直接进行管理。
+如果您希望在容器化环境中运行，我们提供了原生的 Docker 镜像。该镜像内置了对 v4.0.2 原生 Headless 架构的支持，可自动托管前端静态资源，并通过浏览器直接进行管理。
 
 ```bash
 # 方式 1: 直接运行 (推荐)
-# 请务必通过 -e API_KEY=xxx 设置您的密钥，否则无法通过 Web 端管理账号
-# 若未设置密钥或忘记了，请通过 `docker logs antigravity-manager` 或执行 `grep '"api_key"' ~/.antigravity_tools/gui_config.json` 查看
-docker run -d --name antigravity-manager -p 8045:8045 -e API_KEY=your-secret-key -v ~/.antigravity_tools:/root/.antigravity_tools lbjlaq/antigravity-manager:latest
+# - API_KEY: 必填。用于所有协议的 AI 请求鉴定。
+# - WEB_PASSWORD: 可选。用于管理后台登录。若不设置则默认使用 API_KEY。
+docker run -d --name antigravity-manager \
+  -p 8045:8045 \
+  -e API_KEY=sk-your-api-key \
+  -e WEB_PASSWORD=your-login-password \
+  -e ABV_MAX_BODY_SIZE=104857600 \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+
+# 忘记密钥？执行 docker logs antigravity-manager 或 grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json
+
+#### 🔐 鉴权逻辑说明
+*   **场景 A：仅设置了 `API_KEY`**
+    - **Web 登录**：使用 `API_KEY` 进入后台。
+    - **API 调用**：使用 `API_KEY` 进行 AI 请求鉴权。
+*   **场景 B：同时设置了 `API_KEY` 和 `WEB_PASSWORD` (推荐)**
+    - **Web 登录**：**必须**使用 `WEB_PASSWORD`，使用 API Key 将被拒绝（更安全）。
+    - **API 调用**：统一使用 `API_KEY`。这样您可以将 API Key 分发给成员，而保留密码仅供管理员使用。
+
+#### 🆙 旧版本升级指引
+如果您是从 v4.0.1 及更早版本升级，系统默认未设置 `WEB_PASSWORD`。您可以通过以下任一方式设置：
+1.  **Web UI 界面 (推荐)**：使用原有 `API_KEY` 登录后，在 **API 反代设置** 页面手动设置并保存。新密码将持久化存储在 `gui_config.json` 中。
+2.  **环境变量 (Docker)**：在启动容器时增加 `-e WEB_PASSWORD=您的新密码`。**注意：环境变量具有最高优先级，将覆盖 UI 中的任何修改。**
+3.  **配置文件 (持久化)**：直接修改 `~/.antigravity_tools/gui_config.json`，在 `proxy` 对象中修改或添加 `"admin_password": "您的新密码"` 字段。
+    - *注：`WEB_PASSWORD` 是环境变量名，`admin_password` 是配置文件中的 JSON 键名。*
+
+> [!TIP]
+> **密码优先级逻辑 (Priority)**:
+> - **第一优先级 (环境变量)**: `ABV_WEB_PASSWORD` 或 `WEB_PASSWORD`。只要设置了环境变量，系统将始终使用它。
+> - **第二优先级 (配置文件)**: `gui_config.json` 中的 `admin_password` 字段。UI 的“保存”操作会更新此值。
+> - **保底回退 (向后兼容)**: 若上述均未设置，则回退使用 `API_KEY` 作为登录密码。
 
 # 方式 2: 使用 Docker Compose
 # 1. 进入项目的 docker 目录
@@ -330,6 +359,58 @@ response = client.chat.completions.create(
 ## 📝 开发者与社区
 
 *   **版本演进 (Changelog)**:
+    *   **v4.0.3 (2026-01-27)**:
+        -   **[功能增强] 提高请求体限制以支持大体积图片 Payload (PR #1167)**:
+            - 将默认请求体大小限制从 2MB 提升至 **100MB**，解决多图并发传输时的 413 (Payload Too Large) 错误。
+            - 新增环境变量 `ABV_MAX_BODY_SIZE`，支持用户根据需求动态调整最大限制。
+            - 服务启动时自动输出当前生效的 Body Limit 日志，便于排查。
+        -   **[核心修复] 解决 Google OAuth 'state' 参数缺失导致的授权失败 (Issue #1168)**:
+            - 修复了添加 Google 账号时可能出现的 "Agent execution terminated" 错误。
+            - 实现了随机 `state` 参数的生成与回调验证，增强了 OAuth 流程的安全性和兼容性。
+            - 确保在桌面端和 Web 模式下的授权流程均符合 OAuth 2.0 标准。
+        -   **[核心修复] 解决 Docker/Web 模式下代理开关及账号变动需重启生效的问题 (Issue #1166)**:
+            - 实现了代理开关状态的持久化存储，确保容器重启后状态保持一致。
+            - 在账号增删、切换、重排及导入后自动触发 Token 管理器热加载，使变更立即在反代服务中生效。
+            - 优化了账号切换逻辑，自动清除旧会话绑定，确保请求立即路由到新账号。
+    *   **v4.0.2 (2026-01-26)**:
+        -   **[核心修复] 解决开启“访问授权”导致的重复认证与 401 循环 (Fix Issue #1163)**:
+            - 修正了后端鉴权中间件逻辑，确保在鉴权关闭模式（Off/Auto）下管理接口不再强制拦截。
+            - 增强了健康检查路径 (`/api/health`) 的免鉴权豁免，避免 UI 加载初期因状态检测失败触发登录。
+            - 在前端请求层引入了 401 异常频率限制（防抖锁），彻底解决了大批量请求失败导致的 UI 弹窗抖动。
+        -   **[核心修复] 解决切换账号后会话无法持久化保存 (Fix Issue #1159)**:
+            - 增强了数据库注入逻辑，在切换账号时同步更新身份标识（Email）并清除旧的 UserID 缓存。
+            - 解决了因 Token 与身份标识不匹配导致客户端无法正确关联或保存新会话的问题。
+        -   **[核心修复] Docker/Web 模式下模型映射持久化 (Fix Issue #1149)**:
+            - 修复了在 Docker 或 Web 部署模式下，管理员通过 API 修改的模型映射配置（Model Mapping）无法保存到硬盘的问题。
+            - 确保 `admin_update_model_mapping` 接口正确调用持久化逻辑，配置在重启容器后依然生效。
+        -   **[架构优化] MCP 工具支持架构全面升级 (Schema Cleaning & Tool Adapters)**:
+            - **约束语义回填 (Constraint Hints)**:
+                - 实现了智能约束迁移机制，在删除 Gemini 不支持的约束字段(`minLength`, `pattern`, `format` 等)前，自动将其转化为描述提示。
+                - 新增 `CONSTRAINT_FIELDS` 常量和 `move_constraints_to_description` 函数，确保模型能通过描述理解原始约束。
+                - 示例: `{"minLength": 5}` → `{"description": "[Constraint: minLen: 5]"}`
+            - **anyOf/oneOf 智能扁平化增强**:
+                - 重写 `extract_best_schema_from_union` 函数，使用评分机制选择最佳类型(object > array > scalar)。
+                - 在合并后自动添加 `"Accepts: type1 | type2"` 提示到描述中，保留所有可能类型的信息。
+                - 新增 `get_schema_type_name` 函数，支持显式类型和结构推断。
+            - **插件化工具适配器层 (Tool Adapter System)**:
+                - 创建 `ToolAdapter` trait，为不同 MCP 工具提供定制化 Schema 处理能力。
+                - 实现 `PencilAdapter`，自动为 Pencil 绘图工具的视觉属性(`cornerRadius`, `strokeWidth`)和路径参数添加说明。
+                - 建立全局适配器注册表，支持通过 `clean_json_schema_for_tool` 函数应用工具特定优化。
+            - **高性能缓存层 (Schema Cache)**:
+                - 实现基于 SHA-256 哈希的 Schema 缓存机制，避免重复清洗相同的 Schema。
+                - 采用 LRU 淘汰策略，最大缓存 1000 条，内存占用 < 10MB。
+                - 提供 `clean_json_schema_cached` 函数和缓存统计功能，预计性能提升 60%+。
+            - **影响范围**: 
+                - ✅ 显著提升 MCP 工具(如 Pencil)的 Schema 兼容性和模型理解能力
+                - ✅ 为未来添加更多 MCP 工具(filesystem, database 等)奠定了插件化基础
+                - ✅ 完全向后兼容，所有 25 项测试通过
+        -   **[安全增强] Web UI 管理后台密码与 API Key 分离 (Fix Issue #1139)**:
+            - **独立密码配置**: 支持通过 `ABV_WEB_PASSWORD` 或 `WEB_PASSWORD` 环境变量设置独立的管理后台登录密码。
+            - **智能鉴权逻辑**: 
+                - 管理接口优先验证独立密码，未设置时自动回退验证 `API_KEY`（确保向后兼容）。
+                - AI 代理接口严格仅允许使用 `API_KEY` 进行认证，实现权限隔离。
+            - **配置 UI 支持**: 在“仪表盘-服务配置”中新增管理密码编辑项，支持一键找回或修改。
+            - **日志引导**: Headless 模式启动时会清晰打印 API Key 与 Web UI Password 的状态及查看方式。
     *   **v4.0.1 (2026-01-26)**:
         -   **[UX 优化] 主题与语言切换平滑度**:
             - 解决了主题和语言切换时的 UI 卡顿问题，将配置持久化逻辑与状态更新解耦。

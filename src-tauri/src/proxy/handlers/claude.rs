@@ -364,6 +364,7 @@ pub async fn handle_messages(
     let retried_without_thinking = false;
     let mut last_email: Option<String> = None;
     let mut last_mapped_model: Option<String> = None;
+    let mut last_status = StatusCode::SERVICE_UNAVAILABLE; // Default to 503 if no response reached
     
     for attempt in 0..max_attempts {
         // 2. 模型路由解析
@@ -685,6 +686,7 @@ pub async fn handle_messages(
         };
         
         let status = response.status();
+        last_status = status;
         
         // 成功
         if status.is_success() {
@@ -884,6 +886,7 @@ pub async fn handle_messages(
         
         // 1. 立即提取状态码和 headers（防止 response 被 move）
         let status_code = status.as_u16();
+        last_status = status;
         let retry_after = response.headers().get("Retry-After").and_then(|h| h.to_str().ok()).map(|s| s.to_string());
         
         // 2. 获取错误文本并转移 Response 所有权
@@ -905,7 +908,6 @@ pub async fn handle_messages(
                 || error_text.contains("thinking.thinking: Field required")
                 || error_text.contains("thinking.signature")
                 || error_text.contains("thinking.thinking")
-                || error_text.contains("INVALID_ARGUMENT")
                 || error_text.contains("Corrupted thought signature")
                 || error_text.contains("failed to deserialise")
                 || error_text.contains("Invalid signature")
@@ -970,6 +972,7 @@ pub async fn handle_messages(
                             _ => new_blocks.push(block),
                         }
                     }
+                    *blocks = new_blocks;
                 }
             }
             
@@ -1053,11 +1056,21 @@ pub async fn handle_messages(
              }
         }
 
-        (StatusCode::TOO_MANY_REQUESTS, headers, Json(json!({
+        let error_type = match last_status.as_u16() {
+            400 => "invalid_request_error",
+            401 => "authentication_error",
+            403 => "permission_error",
+            429 => "rate_limit_error",
+            529 => "overloaded_error",
+            _ => "api_error",
+        };
+
+        (last_status, headers, Json(json!({
             "type": "error",
             "error": {
-                "type": "overloaded_error",
-                "message": format!("All {} attempts failed. Last error: {}", max_attempts, last_error)
+                "id": "err_retry_exhausted",
+                "type": error_type,
+                "message": format!("All {} attempts failed. Last status: {}. Error: {}", max_attempts, last_status, last_error)
             }
         }))).into_response()
     } else {
@@ -1068,11 +1081,22 @@ pub async fn handle_messages(
                 headers.insert("X-Mapped-Model", v);
              }
         }
-        (StatusCode::TOO_MANY_REQUESTS, headers, Json(json!({
+        
+        let error_type = match last_status.as_u16() {
+            400 => "invalid_request_error",
+            401 => "authentication_error",
+            403 => "permission_error",
+            429 => "rate_limit_error",
+            529 => "overloaded_error",
+            _ => "api_error",
+        };
+
+        (last_status, headers, Json(json!({
             "type": "error",
             "error": {
-                "type": "overloaded_error",
-                "message": format!("All {} attempts failed. Last error: {}", max_attempts, last_error)
+                "id": "err_retry_exhausted",
+                "type": error_type,
+                "message": format!("All {} attempts failed. Last status: {}. Error: {}", max_attempts, last_status, last_error)
             }
         }))).into_response()
     }

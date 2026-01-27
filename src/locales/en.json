@@ -435,6 +435,13 @@
             "warning_key": "Note: Keep your API key secure. Do not share it.",
             "api_key_invalid": "Invalid API key format, must start with sk- and be at least 10 characters long",
             "api_key_updated": "API key updated",
+            "admin_password": "Web UI Management Password",
+            "admin_password_tooltip": "Password used to log in to the Web management console. If empty, the API Key is used by default.",
+            "admin_password_default": "(Same as API Key)",
+            "admin_password_placeholder": "Enter new password, leave empty to use API Key",
+            "admin_password_hint": "Tip: In Docker/Web deployment scenarios, you can set a separate login password to improve the security of your API Key.",
+            "admin_password_short": "Password too short (at least 4 characters)",
+            "admin_password_updated": "Web UI login password updated",
             "auth": {
                 "title": "Authorization",
                 "title_tooltip": "Controls whether incoming requests must be authenticated, and which routes are protected.",
@@ -833,6 +840,15 @@
         "title": "New Version Available",
         "message": "A new version is ready with optimizations and improvements. Current: v{{current}}",
         "action": "Update Now"
+    },
+    "login": {
+        "title": "Secure Access Control",
+        "desc": "Running in Web mode. Please enter management password or API Key to access.",
+        "placeholder": "Enter management password or API Key",
+        "btn_login": "Verify and Enter",
+        "note": "Note: If a separate management password is set, please enter it; otherwise, enter API_KEY.",
+        "lookup_hint": "If forgotten, run docker logs antigravity-manager to find Current API Key or Web UI Password",
+        "config_hint": "Or run grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json to view."
     },
     "token_stats": {
         "title": "Token Consumption Stats",

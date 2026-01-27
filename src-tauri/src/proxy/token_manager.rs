@@ -1469,8 +1469,8 @@ impl TokenManager {
     }
 
     /// 获取 OAuth URL (支持自定义 Redirect URI)
-    pub fn get_oauth_url_with_redirect(&self, redirect_uri: &str) -> String {
-        crate::modules::oauth::get_auth_url(redirect_uri)
+    pub fn get_oauth_url_with_redirect(&self, redirect_uri: &str, state: &str) -> String {
+        crate::modules::oauth::get_auth_url(redirect_uri, state)
     }
 
     /// 获取用户信息 (Email 等)

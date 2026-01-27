@@ -88,11 +88,30 @@ pub fn run() {
                         }
                     }
 
+                    // [NEW] 支持通过环境变量注入 Web UI 密码
+                    // 优先级：ABV_WEB_PASSWORD > WEB_PASSWORD > 配置文件
+                    let env_web_password = std::env::var("ABV_WEB_PASSWORD")
+                        .or_else(|_| std::env::var("WEB_PASSWORD"))
+                        .ok();
+                    
+                    if let Some(pwd) = env_web_password {
+                        if !pwd.trim().is_empty() {
+                            info!("Using Web UI Password from environment variable");
+                            config.proxy.admin_password = Some(pwd);
+                        }
+                    }
+
                     info!("--------------------------------------------------");
                     info!("🚀 Headless mode proxy service starting...");
                     info!("📍 Port: {}", config.proxy.port);
                     info!("🔑 Current API Key: {}", config.proxy.api_key);
-                    info!("💡 Tips: You can use this key to login to Web UI and access AI APIs.");
+                    if let Some(ref pwd) = config.proxy.admin_password {
+                        info!("🔐 Web UI Password: {}", pwd);
+                    } else {
+                        info!("🔐 Web UI Password: (Same as API Key)");
+                    }
+                    info!("💡 Tips: You can use these keys to login to Web UI and access AI APIs.");
+                    info!("💡 Search docker logs or grep gui_config.json to find them.");
                     info!("--------------------------------------------------");
                     
                     // Start proxy service

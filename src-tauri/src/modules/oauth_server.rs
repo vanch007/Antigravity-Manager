@@ -9,6 +9,7 @@ use crate::modules::oauth;
 struct OAuthFlowState {
     auth_url: String,
     redirect_uri: String,
+    state: String,
     cancel_tx: watch::Sender<bool>,
     code_rx: Option<oneshot::Receiver<Result<String, String>>>,
 }
@@ -110,7 +111,8 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
         format!("http://[::1]:{}/oauth-callback", port)
     };
 
-    let auth_url = oauth::get_auth_url(&redirect_uri);
+    let state_str = uuid::Uuid::new_v4().to_string();
+    let auth_url = oauth::get_auth_url(&redirect_uri, &state_str);
 
     // Cancellation signal (supports multiple consumers)
     let (cancel_tx, cancel_rx) = watch::channel(false);
@@ -138,7 +140,7 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
                 let request = String::from_utf8_lossy(&buffer[..bytes_read]);
                 
                 // [FIX #931/850/778] More robust parsing and detailed logging
-                let code = request
+                let query_params = request
                     .lines()
                     .next()
                     .and_then(|line| {
@@ -149,11 +151,20 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
                         // Use a dummy base for parsing; redirect_uri is already set to localhost
                         Url::parse(&format!("http://localhost{}", path)).ok()
                     })
-                    .and_then(|url| {
-                        url.query_pairs()
-                            .find(|(k, _)| k == "code")
-                            .map(|(_, v)| v.into_owned())
+                    .map(|url| {
+                        let mut code = None;
+                        let mut state = None;
+                        for (k, v) in url.query_pairs() {
+                            if k == "code" { code = Some(v.to_string()); }
+                            else if k == "state" { state = Some(v.to_string()); }
+                        }
+                        (code, state)
                     });
+
+                let (code, received_state) = match query_params {
+                    Some((c, s)) => (c, s),
+                    None => (None, None),
+                };
 
                 if code.is_none() && bytes_read > 0 {
                     crate::modules::logger::log_error(&format!(
@@ -162,12 +173,29 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
                     ));
                 }
 
-                let (result, response_html) = match code {
-                    Some(code) => {
+                // Verify state
+                let state_valid = {
+                    if let Ok(lock) = get_oauth_flow_state().lock() {
+                        if let Some(s) = lock.as_ref() {
+                            received_state.as_ref() == Some(&s.state)
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                let (result, response_html) = match (code, state_valid) {
+                    (Some(code), true) => {
                         crate::modules::logger::log_info("Successfully captured OAuth code from IPv4 listener");
                         (Ok(code), oauth_success_html())
                     },
-                    None => (Err("Failed to get Authorization Code in callback".to_string()), oauth_fail_html()),
+                    (Some(_), false) => {
+                        crate::modules::logger::log_error("OAuth callback state mismatch (CSRF protection)");
+                        (Err("OAuth state mismatch".to_string()), oauth_fail_html())
+                    },
+                    (None, _) => (Err("Failed to get Authorization Code in callback".to_string()), oauth_fail_html()),
                 };
                 
                 let _ = stream.write_all(response_html.as_bytes()).await;
@@ -197,7 +225,7 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
                 let bytes_read = stream.read(&mut buffer).await.unwrap_or(0);
                 let request = String::from_utf8_lossy(&buffer[..bytes_read]);
                 
-                let code = request
+                let query_params = request
                     .lines()
                     .next()
                     .and_then(|line| {
@@ -207,11 +235,20 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
                     .and_then(|path| {
                         Url::parse(&format!("http://localhost{}", path)).ok()
                     })
-                    .and_then(|url| {
-                        url.query_pairs()
-                            .find(|(k, _)| k == "code")
-                            .map(|(_, v)| v.into_owned())
+                    .map(|url| {
+                        let mut code = None;
+                        let mut state = None;
+                        for (k, v) in url.query_pairs() {
+                            if k == "code" { code = Some(v.to_string()); }
+                            else if k == "state" { state = Some(v.to_string()); }
+                        }
+                        (code, state)
                     });
+
+                let (code, received_state) = match query_params {
+                    Some((c, s)) => (c, s),
+                    None => (None, None),
+                };
 
                 if code.is_none() && bytes_read > 0 {
                     crate::modules::logger::log_error(&format!(
@@ -220,12 +257,29 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
                     ));
                 }
 
-                let (result, response_html) = match code {
-                    Some(code) => {
+                // Verify state
+                let state_valid = {
+                    if let Ok(lock) = get_oauth_flow_state().lock() {
+                        if let Some(s) = lock.as_ref() {
+                            received_state.as_ref() == Some(&s.state)
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                let (result, response_html) = match (code, state_valid) {
+                    (Some(code), true) => {
                         crate::modules::logger::log_info("Successfully captured OAuth code from IPv6 listener");
                         (Ok(code), oauth_success_html())
                     },
-                    None => (Err("Failed to get Authorization Code in callback".to_string()), oauth_fail_html()),
+                    (Some(_), false) => {
+                        crate::modules::logger::log_error("OAuth callback state mismatch (IPv6 CSRF protection)");
+                        (Err("OAuth state mismatch".to_string()), oauth_fail_html())
+                    },
+                    (None, _) => (Err("Failed to get Authorization Code in callback".to_string()), oauth_fail_html()),
                 };
                 
                 let _ = stream.write_all(response_html.as_bytes()).await;
@@ -247,6 +301,7 @@ async fn ensure_oauth_flow_prepared(app_handle: Option<tauri::AppHandle>) -> Res
         *state = Some(OAuthFlowState {
             auth_url: auth_url.clone(),
             redirect_uri,
+            state: state_str,
             cancel_tx,
             code_rx: Some(code_rx),
         });

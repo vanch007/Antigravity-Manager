@@ -1044,9 +1044,6 @@ fn build_contents(
                             pending_tool_use_ids.push(id.clone());
                         }
 
-                        // [New] 递归清理参数中可能存在的非法校验字段
-                        crate::proxy::common::json_schema::clean_json_schema(&mut part);
-
                         // 存储 id -> name 映射
                         tool_id_to_name.insert(id.clone(), name.clone());
 

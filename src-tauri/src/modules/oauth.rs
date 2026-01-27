@@ -49,7 +49,7 @@ impl UserInfo {
 
 
 /// Generate OAuth authorization URL
-pub fn get_auth_url(redirect_uri: &str) -> String {
+pub fn get_auth_url(redirect_uri: &str, state: &str) -> String {
     let scopes = vec![
         "https://www.googleapis.com/auth/cloud-platform",
         "https://www.googleapis.com/auth/userinfo.email",
@@ -66,6 +66,7 @@ pub fn get_auth_url(redirect_uri: &str) -> String {
         ("access_type", "offline"),
         ("prompt", "consent"),
         ("include_granted_scopes", "true"),
+        ("state", state),
     ];
     
     let url = url::Url::parse_with_params(AUTH_URL, &params).expect("Invalid Auth URL");
@@ -212,4 +213,20 @@ pub async fn ensure_fresh_token(
         current_token.project_id.clone(), // Keep original project_id
         None,  // session_id will be generated in token_manager
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_auth_url_contains_state() {
+        let redirect_uri = "http://localhost:8080/callback";
+        let state = "test-state-123456";
+        let url = get_auth_url(redirect_uri, state);
+        
+        assert!(url.contains("state=test-state-123456"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A8080%2Fcallback"));
+        assert!(url.contains("response_type=code"));
+    }
 }

@@ -428,6 +428,13 @@
             "warning_key": "Lưu ý: Giữ API key của bạn an toàn. Đừng chia sẻ nó.",
             "api_key_invalid": "Định dạng khóa API không hợp lệ, phải bắt đầu bằng sk- và có ít nhất 10 ký tự",
             "api_key_updated": "Đã cập nhật khóa API",
+            "admin_password": "Mật khẩu quản trị Web UI",
+            "admin_password_tooltip": "Mật khẩu dùng để đăng nhập vào bảng điều khiển quản lý Web. Nếu để trống, API Key sẽ được sử dụng theo mặc định.",
+            "admin_password_default": "(Giống với API Key)",
+            "admin_password_placeholder": "Nhập mật khẩu mới, để trống để dùng API Key",
+            "admin_password_hint": "Mẹo: Trong các kịch bản triển khai Docker/Web, bạn có thể thiết lập mật khẩu đăng nhập riêng để tăng cường tính bảo mật cho API Key.",
+            "admin_password_short": "Mật khẩu quá ngắn (tối thiểu 4 ký tự)",
+            "admin_password_updated": "Mật khẩu đăng nhập Web UI đã được cập nhật",
             "auth": {
                 "title": "Xác thực (Authorization)",
                 "title_tooltip": "Kiểm soát xem request đến có cần xác thực hay không, và route nào được bảo vệ.",
@@ -850,8 +857,17 @@
     },
     "update_notification": {
         "title": "Có phiên bản mới",
-        "message": "Có phiên bản mới với nhiều tối ưu và cải tiến. Hiện tại: v{{current}}",
+        "message": "Có phiên bản mới với các tối ưu hóa và cải thiện. Hiện tại: v{{current}}",
         "action": "Cập nhật ngay"
+    },
+    "login": {
+        "title": "Kiểm soát truy cập an toàn",
+        "desc": "Hiện đang chạy ở chế độ Web. Vui lòng nhập mật khẩu quản trị hoặc API Key để truy cập.",
+        "placeholder": "Nhập mật khẩu quản trị hoặc API Key",
+        "btn_login": "Xác minh và Vào",
+        "note": "Lưu ý: Nếu đã thiết lập mật khẩu quản trị riêng, vui lòng nhập mật khẩu đó; nếu không, hãy nhập API_KEY.",
+        "lookup_hint": "Nếu quên, hãy chạy lệnh docker logs antigravity-manager để tìm API Key hiện tại hoặc Mật khẩu Web UI.",
+        "config_hint": "Hoặc chạy lệnh grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json để xem."
     },
     "token_stats": {
         "title": "Thống kê Token",

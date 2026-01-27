@@ -427,6 +427,13 @@
             "warning_key": "Nota: Mantenha sua chave de API segura. Não a compartilhe.",
             "api_key_invalid": "Formato de chave de API inválido, deve começar com sk- e ter pelo menos 10 caracteres",
             "api_key_updated": "Chave de API atualizada",
+            "admin_password": "Senha do Administrador Web UI",
+            "admin_password_tooltip": "Senha usada para fazer login no console de gerenciamento Web. Se estiver vazia, a Chave de API será usada por padrão.",
+            "admin_password_default": "(Mesmo que a Chave de API)",
+            "admin_password_placeholder": "Digite a nova senha, deixe em branco para usar a Chave de API",
+            "admin_password_hint": "Dica: Em cenários de implantação Docker/Web, você pode definir uma senha de login separada para melhorar a segurança da sua Chave de API.",
+            "admin_password_short": "Senha muito curta (mínimo de 4 caracteres)",
+            "admin_password_updated": "Senha de login Web UI atualizada",
             "auth": {
                 "title": "Autorização",
                 "title_tooltip": "Controla se as solicitações recebidas devem ser autenticadas e quais rotas são protegidas.",
@@ -827,6 +834,15 @@
         "title": "Nova Versão Disponível",
         "message": "Uma nova versão está pronta com otimizações e melhorias. Atual: v{{current}}",
         "action": "Atualizar Agora"
+    },
+    "login": {
+        "title": "Controle de Acesso Seguro",
+        "desc": "Executando no modo Web. Por favor, insira a senha de administrador ou a Chave de API para acessar.",
+        "placeholder": "Insira a senha de administrador ou a Chave de API",
+        "btn_login": "Verificar e Entrar",
+        "note": "Nota: Se uma senha de administração separada estiver definida, insira-a; caso contrário, insira a API_KEY.",
+        "lookup_hint": "Se esqueceu, execute docker logs antigravity-manager para encontrar a Chave de API atual ou a senha da Web UI.",
+        "config_hint": "Ou execute grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json para visualizar."
     },
     "errors": {
         "stream": {

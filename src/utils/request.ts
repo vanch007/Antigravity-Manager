@@ -165,7 +165,13 @@ export async function request<T>(cmd: string, args?: any): Promise<T> {
     const response = await fetch(url, options);
     if (!response.ok) {
       if (!isTauri && response.status === 401) {
-        window.dispatchEvent(new CustomEvent('abv-unauthorized'));
+        // [FIX #1163] 增加防抖锁，避免重复事件导致 UI 抖动
+        const now = Date.now();
+        const lastAuthError = (window as any)._lastAuthErrorTime || 0;
+        if (now - lastAuthError > 2000) {
+          (window as any)._lastAuthErrorTime = now;
+          window.dispatchEvent(new CustomEvent('abv-unauthorized'));
+        }
       }
       const errorData = await response.json().catch(() => ({}));
       throw errorData.error || `HTTP Error ${response.status}`;

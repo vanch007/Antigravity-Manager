@@ -201,6 +201,9 @@ pub struct ProxyConfig {
 
     /// API 密钥
     pub api_key: String,
+    
+    /// Web UI 管理后台密码 (可选，如未设置则使用 api_key)
+    pub admin_password: Option<String>,
 
     /// 是否自动启动
     pub auto_start: bool,
@@ -251,6 +254,7 @@ impl Default for ProxyConfig {
             auth_mode: ProxyAuthMode::default(),
             port: 8045,
             api_key: format!("sk-{}", uuid::Uuid::new_v4().simple()),
+            admin_password: None,
             auto_start: false,
             custom_mapping: std::collections::HashMap::new(),
             request_timeout: default_request_timeout(),

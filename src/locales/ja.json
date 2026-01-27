@@ -443,6 +443,13 @@
             "warning_key": "注意: APIキーを安全に保管してください。他人に共有しないでください。",
             "api_key_invalid": "APIキーの形式が無効です。sk- で始まり、10文字以上である必要があります",
             "api_key_updated": "APIキーが更新されました",
+            "admin_password": "Web UI 管理パスワード",
+            "admin_password_tooltip": "Web管理コンソールにログインするためのパスワード。空の場合、デフォルトでAPIキーが使用されます。",
+            "admin_password_default": "（APIキーと同じ）",
+            "admin_password_placeholder": "新しいパスワードを入力してください。空欄の場合はAPIキーを使用します",
+            "admin_password_hint": "ヒント：Docker/Webデプロイシナリオでは、独立したログインパスワードを設定してAPIキーのセキュリティを向上させることができます。",
+            "admin_password_short": "パスワードが短すぎます（最低4文字）",
+            "admin_password_updated": "Web UI ログインパスワードが更新されました",
             "auth": {
                 "title": "認証",
                 "title_tooltip": "着信リクエストの認証が必要かどうか、およびどのルートを保護するかを制御します。",
@@ -852,6 +859,15 @@
         "title": "新しいバージョンが利用可能です",
         "message": "最適化と改善が含まれた新しいバージョンの準備ができました。現在のバージョン: v{{current}}",
         "action": "今すぐ更新"
+    },
+    "login": {
+        "title": "セキュアアクセス制御",
+        "desc": "現在 Web モードで実行されています。管理パスワードまたは API キーを入力してアクセスしてください。",
+        "placeholder": "管理パスワードまたは API キーを入力してください",
+        "btn_login": "認証してアクセス",
+        "note": "注意：独立した管理パスワードが設定されている場合は管理パスワードを入力してください。そうでない場合は API_KEY を入力してください。",
+        "lookup_hint": "お忘れの場合は、docker logs antigravity-manager を実行して Current API Key または Web UI Password を探してください",
+        "config_hint": "または grep -E '\"api_key\"|\"admin_password\"' ~/.antigravity_tools/gui_config.json を実行して確認してください。"
     },
     "token_stats": {
         "title": "トークン統計",
