@@ -227,6 +227,12 @@ pub struct ProxyConfig {
     /// 实验性功能配置
     #[serde(default)]
     pub experimental: ExperimentalConfig,
+
+    /// 固定账号模式的账号ID (Fixed Account Mode)
+    /// - None: 使用轮询模式
+    /// - Some(account_id): 固定使用指定账号
+    #[serde(default)]
+    pub preferred_account_id: Option<String>,
 }
 
 /// 上游代理配置
@@ -254,6 +260,7 @@ impl Default for ProxyConfig {
             zai: ZaiConfig::default(),
             scheduling: crate::proxy::sticky_config::StickySessionConfig::default(),
             experimental: ExperimentalConfig::default(),
+            preferred_account_id: None, // 默认使用轮询模式
         }
     }
 }

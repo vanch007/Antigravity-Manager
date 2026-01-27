@@ -77,8 +77,17 @@ pub async fn start_proxy_service(
     token_manager.start_auto_cleanup(); // 启动限流记录自动清理后台任务
     // 同步 UI 传递的调度配置
     token_manager.update_sticky_config(config.scheduling.clone()).await;
-    
-    // 3. 加载账号
+
+    // 🆕 [FIX #820] 恢复固定账号模式设置
+    if let Some(ref account_id) = config.preferred_account_id {
+        token_manager.set_preferred_account(Some(account_id.clone())).await;
+        tracing::info!("🔒 [FIX #820] Fixed account mode restored: {}", account_id);
+    }
+
+    // 檢查並啟動管理服務器（如果尚未運行）
+    ensure_admin_server(config.clone(), state, integration.clone(), cloudflared_state.clone()).await?;
+
+    // 3. 加載賬號
     let active_accounts = token_manager.load_accounts().await
         .map_err(|e| format!("加载账号失败: {}", e))?;
     
@@ -530,7 +539,23 @@ pub async fn set_preferred_account(
     if let Some(instance) = instance_lock.as_ref() {
         // 过滤空字符串为 None
         let cleaned_id = account_id.filter(|s| !s.trim().is_empty());
-        instance.token_manager.set_preferred_account(cleaned_id).await;
+
+        // 1. 更新内存状态
+        instance.token_manager.set_preferred_account(cleaned_id.clone()).await;
+
+        // 2. 持久化到配置文件 (修复 Issue #820 自动关闭问题)
+        let mut app_config = crate::modules::config::load_app_config()
+            .map_err(|e| format!("加载配置失败: {}", e))?;
+        app_config.proxy.preferred_account_id = cleaned_id.clone();
+        crate::modules::config::save_app_config(&app_config)
+            .map_err(|e| format!("保存配置失败: {}", e))?;
+
+        if let Some(ref id) = cleaned_id {
+            tracing::info!("🔒 [FIX #820] Fixed account mode enabled and persisted: {}", id);
+        } else {
+            tracing::info!("🔄 [FIX #820] Round-robin mode enabled and persisted");
+        }
+
         Ok(())
     } else {
         Err("服务未运行".to_string())
