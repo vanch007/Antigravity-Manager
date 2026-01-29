@@ -9,10 +9,11 @@ use tokio::time::Duration;
 // 优先使用稳定的 prod 端点，避免影响缓存命中率
 const V1_INTERNAL_BASE_URL_PROD: &str = "https://cloudcode-pa.googleapis.com/v1internal";
 const V1_INTERNAL_BASE_URL_DAILY: &str = "https://daily-cloudcode-pa.googleapis.com/v1internal";
-const V1_INTERNAL_SANDBOX_BASE_URL_DAILY: &str = "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal";
+const V1_INTERNAL_SANDBOX_BASE_URL_DAILY: &str =
+    "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal";
 const V1_INTERNAL_BASE_URL_FALLBACKS: [&str; 2] = [
     // V1_INTERNAL_BASE_URL_PROD,   // 优先使用生产环境（稳定）, 暂时屏蔽，以修复反代429/503
-    V1_INTERNAL_BASE_URL_DAILY,  // 备用测试环境（新功能）
+    V1_INTERNAL_BASE_URL_DAILY,         // 备用测试环境（新功能）
     V1_INTERNAL_SANDBOX_BASE_URL_DAILY, // 备用沙箱测试环境
 ];
 
@@ -25,11 +26,11 @@ impl UpstreamClient {
         let mut builder = Client::builder()
             // Connection settings (优化连接复用，减少建立开销)
             .connect_timeout(Duration::from_secs(20))
-            .pool_max_idle_per_host(16)                  // 每主机最多 16 个空闲连接
-            .pool_idle_timeout(Duration::from_secs(90))  // 空闲连接保持 90 秒
-            .tcp_keepalive(Duration::from_secs(60))      // TCP 保活探测 60 秒
+            .pool_max_idle_per_host(16) // 每主机最多 16 个空闲连接
+            .pool_idle_timeout(Duration::from_secs(90)) // 空闲连接保持 90 秒
+            .tcp_keepalive(Duration::from_secs(60)) // TCP 保活探测 60 秒
             .timeout(Duration::from_secs(600))
-            .user_agent("antigravity/1.11.9 windows/amd64");
+            .user_agent("antigravity/1.15.8 windows/amd64");
 
         if let Some(config) = proxy_config {
             if config.enabled && !config.url.is_empty() {
@@ -46,7 +47,7 @@ impl UpstreamClient {
     }
 
     /// 构建 v1internal URL
-    /// 
+    ///
     /// 构建 API 请求地址
     fn build_url(base_url: &str, method: &str, query_string: Option<&str>) -> String {
         if let Some(qs) = query_string {
@@ -57,7 +58,7 @@ impl UpstreamClient {
     }
 
     /// 判断是否应尝试下一个端点
-    /// 
+    ///
     /// 当遇到以下错误时，尝试切换到备用端点：
     /// - 429 Too Many Requests（限流）
     /// - 408 Request Timeout（超时）
@@ -71,7 +72,7 @@ impl UpstreamClient {
     }
 
     /// 调用 v1internal API（基础方法）
-    /// 
+    ///
     /// 发起基础网络请求，支持多端点自动 Fallback
     pub async fn call_v1_internal(
         &self,
@@ -80,7 +81,14 @@ impl UpstreamClient {
         body: Value,
         query_string: Option<&str>,
     ) -> Result<Response, String> {
-        self.call_v1_internal_with_headers(method, access_token, body, query_string, std::collections::HashMap::new()).await
+        self.call_v1_internal_with_headers(
+            method,
+            access_token,
+            body,
+            query_string,
+            std::collections::HashMap::new(),
+        )
+        .await
     }
 
     /// [FIX #765] 调用 v1internal API，支持透传额外的 Headers
@@ -105,7 +113,7 @@ impl UpstreamClient {
         );
         headers.insert(
             header::USER_AGENT,
-            header::HeaderValue::from_static("antigravity/1.11.9 windows/amd64"),
+            header::HeaderValue::from_static("antigravity/1.15.8 windows/amd64"),
         );
 
         // 注入额外的 Headers (如 anthropic-beta)
@@ -145,7 +153,11 @@ impl UpstreamClient {
                                 V1_INTERNAL_BASE_URL_FALLBACKS.len()
                             );
                         } else {
-                            tracing::debug!("✓ Upstream request succeeded | Endpoint: {} | Status: {}", base_url, status);
+                            tracing::debug!(
+                                "✓ Upstream request succeeded | Endpoint: {} | Status: {}",
+                                base_url,
+                                status
+                            );
                         }
                         return Ok(resp);
                     }
@@ -183,16 +195,16 @@ impl UpstreamClient {
     }
 
     /// 调用 v1internal API（带 429 重试,支持闭包）
-    /// 
+    ///
     /// 带容错和重试的核心请求逻辑
-    /// 
+    ///
     /// # Arguments
     /// * `method` - API method (e.g., "generateContent")
     /// * `query_string` - Optional query string (e.g., "?alt=sse")
     /// * `get_credentials` - 闭包，获取凭证（支持账号轮换）
     /// * `build_body` - 闭包，接收 project_id 构建请求体
     /// * `max_attempts` - 最大重试次数
-    /// 
+    ///
     /// # Returns
     /// HTTP Response
     // 已移除弃用的重试方法 (call_v1_internal_with_retry)
@@ -202,7 +214,7 @@ impl UpstreamClient {
     // 已移除弃用的辅助方法 (parse_duration_ms)
 
     /// 获取可用模型列表
-    /// 
+    ///
     /// 获取远端模型列表，支持多端点自动 Fallback
     #[allow(dead_code)] // API ready for future model discovery feature
     pub async fn fetch_available_models(&self, access_token: &str) -> Result<Value, String> {
@@ -218,7 +230,7 @@ impl UpstreamClient {
         );
         headers.insert(
             header::USER_AGENT,
-            header::HeaderValue::from_static("antigravity/1.11.9 windows/amd64"),
+            header::HeaderValue::from_static("antigravity/1.15.8 windows/amd64"),
         );
 
         let mut last_err: Option<String> = None;
@@ -246,7 +258,10 @@ impl UpstreamClient {
                                 status
                             );
                         } else {
-                            tracing::debug!("✓ fetchAvailableModels succeeded | Endpoint: {}", base_url);
+                            tracing::debug!(
+                                "✓ fetchAvailableModels succeeded | Endpoint: {}",
+                                base_url
+                            );
                         }
                         let json: Value = resp
                             .json()
@@ -295,7 +310,7 @@ mod tests {
     #[test]
     fn test_build_url() {
         let base_url = "https://cloudcode-pa.googleapis.com/v1internal";
-        
+
         let url1 = UpstreamClient::build_url(base_url, "generateContent", None);
         assert_eq!(
             url1,
@@ -308,5 +323,4 @@ mod tests {
             "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
         );
     }
-
 }
