@@ -2,10 +2,18 @@
 use serde_json::{json, Value};
 
 /// 包装请求体为 v1internal 格式
-pub fn wrap_request(body: &Value, project_id: &str, mapped_model: &str, session_id: Option<&str>) -> Value {
+pub fn wrap_request(
+    body: &Value,
+    project_id: &str,
+    mapped_model: &str,
+    session_id: Option<&str>,
+) -> Value {
     // 优先使用传入的 mapped_model，其次尝试从 body 获取
-    let original_model = body.get("model").and_then(|v| v.as_str()).unwrap_or(mapped_model);
-    
+    let original_model = body
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or(mapped_model);
+
     // 如果 mapped_model 是空的，则使用 original_model
     let final_model_name = if !mapped_model.is_empty() {
         mapped_model
@@ -21,14 +29,19 @@ pub fn wrap_request(body: &Value, project_id: &str, mapped_model: &str, session_
 
     // [FIX #765] Inject thought_signature into functionCall parts
     if let Some(s_id) = session_id {
-        if let Some(contents) = inner_request.get_mut("contents").and_then(|c| c.as_array_mut()) {
+        if let Some(contents) = inner_request
+            .get_mut("contents")
+            .and_then(|c| c.as_array_mut())
+        {
             for content in contents {
                 if let Some(parts) = content.get_mut("parts").and_then(|p| p.as_array_mut()) {
                     for part in parts {
                         if part.get("functionCall").is_some() {
                             // Only inject if it doesn't already have one
                             if part.get("thoughtSignature").is_none() {
-                                if let Some(sig) = crate::proxy::SignatureCache::global().get_session_signature(s_id) {
+                                if let Some(sig) = crate::proxy::SignatureCache::global()
+                                    .get_session_signature(s_id)
+                                {
                                     if let Some(obj) = part.as_object_mut() {
                                         obj.insert("thoughtSignature".to_string(), json!(sig));
                                         tracing::debug!("[Gemini-Wrap] Injected signature (len: {}) for session: {}", sig.len(), s_id);
@@ -42,17 +55,58 @@ pub fn wrap_request(body: &Value, project_id: &str, mapped_model: &str, session_
         }
     }
 
+    // [FIX Issue #1355] Gemini Flash thinking budget capping & minimum enforcement
+    // Force cap thinking_budget to 24576 for Flash models and ensure minimum 1024 to prevent 400 Bad Request
+    if let Some(gen_config) = inner_request.get_mut("generationConfig") {
+        if let Some(thinking_config) = gen_config.get_mut("thinkingConfig") {
+            if let Some(budget_val) = thinking_config.get("thinkingBudget") {
+                if let Some(budget) = budget_val.as_u64() {
+                    let mut new_budget = budget;
+
+                    // Enforce minimum 1024
+                    if budget < 1024 {
+                        new_budget = 1024;
+                        tracing::info!(
+                            "[Gemini-Wrap] Raised thinking_budget from {} to 1024 (API minimum)",
+                            budget
+                        );
+                    }
+
+                    // Cap at 24576 for Flash models
+                    if final_model_name.to_lowercase().contains("flash") && new_budget > 24576 {
+                        new_budget = 24576;
+                        tracing::info!(
+                            "[Gemini-Wrap] Capped thinking_budget from {} to 24576 for Flash model {}",
+                            budget, final_model_name
+                        );
+                    }
+
+                    if new_budget != budget {
+                        thinking_config["thinkingBudget"] = json!(new_budget);
+                    }
+                }
+            }
+        }
+    }
+
     // [FIX] Removed forced maxOutputTokens (64000) as it exceeds limits for Gemini 1.5 Flash/Pro standard models (8192).
     // This caused upstream to return empty/invalid responses, leading to 'NoneType' object has no attribute 'strip' in Python clients.
     // relying on upstream defaults or user provided values is safer.
 
     // 提取 tools 列表以进行联网探测 (Gemini 风格可能是嵌套的)
-    let tools_val: Option<Vec<Value>> = inner_request.get("tools").and_then(|t| t.as_array()).map(|arr| {
-        arr.clone()
-    });
+    let tools_val: Option<Vec<Value>> = inner_request
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .map(|arr| arr.clone());
 
     // Use shared grounding/config logic
-    let config = crate::proxy::mappers::common_utils::resolve_request_config(original_model, final_model_name, &tools_val, None, None);
+    let config = crate::proxy::mappers::common_utils::resolve_request_config(
+        original_model,
+        final_model_name,
+        &tools_val,
+        None,
+        None,
+    );
 
     // Clean tool declarations (remove forbidden Schema fields like multipleOf, and remove redundant search decls)
     if let Some(tools) = inner_request.get_mut("tools") {
@@ -82,9 +136,14 @@ pub fn wrap_request(body: &Value, project_id: &str, mapped_model: &str, session_
         }
     }
 
-    tracing::debug!("[Debug] Gemini Wrap: original='{}', mapped='{}', final='{}', type='{}'", 
-        original_model, final_model_name, config.final_model, config.request_type);
-    
+    tracing::debug!(
+        "[Debug] Gemini Wrap: original='{}', mapped='{}', final='{}', type='{}'",
+        original_model,
+        final_model_name,
+        config.final_model,
+        config.request_type
+    );
+
     // Inject googleSearch tool if needed
     if config.inject_google_search {
         crate::proxy::mappers::common_utils::inject_google_search_tool(&mut inner_request);
@@ -92,47 +151,48 @@ pub fn wrap_request(body: &Value, project_id: &str, mapped_model: &str, session_
 
     // Inject imageConfig if present (for image generation models)
     if let Some(image_config) = config.image_config {
-         if let Some(obj) = inner_request.as_object_mut() {
-             // 1. Filter tools: remove tools for image gen
-             obj.remove("tools");
+        if let Some(obj) = inner_request.as_object_mut() {
+            // 1. Filter tools: remove tools for image gen
+            obj.remove("tools");
 
-             // 2. Remove systemInstruction (image generation does not support system prompts)
-             obj.remove("systemInstruction");
+            // 2. Remove systemInstruction (image generation does not support system prompts)
+            obj.remove("systemInstruction");
 
-             // 3. Clean generationConfig (remove thinkingConfig, responseMimeType, responseModalities etc.)
-             let gen_config = obj.entry("generationConfig").or_insert_with(|| json!({}));
-             if let Some(gen_obj) = gen_config.as_object_mut() {
-                 gen_obj.remove("thinkingConfig");
-                 gen_obj.remove("responseMimeType"); 
-                 gen_obj.remove("responseModalities"); // Cherry Studio sends this, might conflict
-                 gen_obj.insert("imageConfig".to_string(), image_config);
-             }
-         }
+            // 3. Clean generationConfig (remove thinkingConfig, responseMimeType, responseModalities etc.)
+            let gen_config = obj.entry("generationConfig").or_insert_with(|| json!({}));
+            if let Some(gen_obj) = gen_config.as_object_mut() {
+                gen_obj.remove("thinkingConfig");
+                gen_obj.remove("responseMimeType");
+                gen_obj.remove("responseModalities"); // Cherry Studio sends this, might conflict
+                gen_obj.insert("imageConfig".to_string(), image_config);
+            }
+        }
     } else {
         // [NEW] 只在非图像生成模式下注入 Antigravity 身份 (原始简化版)
         let antigravity_identity = "You are Antigravity, a powerful agentic AI coding assistant designed by the Google Deepmind team working on Advanced Agentic Coding.\n\
         You are pair programming with a USER to solve their coding task. The task may require creating a new codebase, modifying or debugging an existing codebase, or simply answering a question.\n\
         **Absolute paths only**\n\
         **Proactiveness**";
-        
+
         // [HYBRID] 检查是否已有 systemInstruction
         if let Some(system_instruction) = inner_request.get_mut("systemInstruction") {
             // [NEW] 补全 role: user
             if let Some(obj) = system_instruction.as_object_mut() {
                 if !obj.contains_key("role") {
-                     obj.insert("role".to_string(), json!("user"));
+                    obj.insert("role".to_string(), json!("user"));
                 }
             }
 
             if let Some(parts) = system_instruction.get_mut("parts") {
                 if let Some(parts_array) = parts.as_array_mut() {
                     // 检查第一个 part 是否已包含 Antigravity 身份
-                    let has_antigravity = parts_array.get(0)
+                    let has_antigravity = parts_array
+                        .get(0)
                         .and_then(|p| p.get("text"))
                         .and_then(|t| t.as_str())
                         .map(|s| s.contains("You are Antigravity"))
                         .unwrap_or(false);
-                    
+
                     if !has_antigravity {
                         // 在前面插入 Antigravity 身份
                         parts_array.insert(0, json!({"text": antigravity_identity}));
@@ -169,7 +229,8 @@ mod test_fixes {
     fn test_wrap_request_with_signature() {
         let session_id = "test-session-sig";
         let signature = "test-signature-must-be-longer-than-fifty-characters-to-be-cached-by-signature-cache-12345"; // > 50 chars
-        crate::proxy::SignatureCache::global().cache_session_signature(session_id, signature.to_string());
+        crate::proxy::SignatureCache::global()
+            .cache_session_signature(session_id, signature.to_string());
 
         let body = json!({
             "model": "gemini-pro",
@@ -185,7 +246,9 @@ mod test_fixes {
         });
 
         let result = wrap_request(&body, "proj", "gemini-pro", Some(session_id));
-        let injected_sig = result["request"]["contents"][0]["parts"][0]["thoughtSignature"].as_str().unwrap();
+        let injected_sig = result["request"]["contents"][0]["parts"][0]["thoughtSignature"]
+            .as_str()
+            .unwrap();
         assert_eq!(injected_sig, signature);
     }
 }
@@ -232,15 +295,19 @@ mod tests {
             "model": "gemini-pro",
             "messages": []
         });
-        
+
         let result = wrap_request(&body, "test-proj", "gemini-pro", None);
-        
+
         // 验证 systemInstruction
-        let sys = result.get("request").unwrap().get("systemInstruction").unwrap();
-        
+        let sys = result
+            .get("request")
+            .unwrap()
+            .get("systemInstruction")
+            .unwrap();
+
         // 1. 验证 role: "user"
         assert_eq!(sys.get("role").unwrap(), "user");
-        
+
         // 2. 验证 Antigravity 身份注入
         let parts = sys.get("parts").unwrap().as_array().unwrap();
         assert!(!parts.is_empty());
@@ -259,13 +326,25 @@ mod tests {
         });
 
         let result = wrap_request(&body, "test-proj", "gemini-pro", None);
-        let sys = result.get("request").unwrap().get("systemInstruction").unwrap();
+        let sys = result
+            .get("request")
+            .unwrap()
+            .get("systemInstruction")
+            .unwrap();
         let parts = sys.get("parts").unwrap().as_array().unwrap();
 
         // Should have 2 parts: Antigravity + User
         assert_eq!(parts.len(), 2);
-        assert!(parts[0].get("text").unwrap().as_str().unwrap().contains("You are Antigravity"));
-        assert_eq!(parts[1].get("text").unwrap().as_str().unwrap(), "User custom prompt");
+        assert!(parts[0]
+            .get("text")
+            .unwrap()
+            .as_str()
+            .unwrap()
+            .contains("You are Antigravity"));
+        assert_eq!(
+            parts[1].get("text").unwrap().as_str().unwrap(),
+            "User custom prompt"
+        );
     }
 
     #[test]
@@ -278,7 +357,11 @@ mod tests {
         });
 
         let result = wrap_request(&body, "test-proj", "gemini-pro", None);
-        let sys = result.get("request").unwrap().get("systemInstruction").unwrap();
+        let sys = result
+            .get("request")
+            .unwrap()
+            .get("systemInstruction")
+            .unwrap();
         let parts = sys.get("parts").unwrap().as_array().unwrap();
 
         // Should NOT inject duplicate, so only 1 part remains
