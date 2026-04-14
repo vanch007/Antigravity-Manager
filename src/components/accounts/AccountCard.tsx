@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { useConfigStore } from '../../stores/useConfigStore';
 import { QuotaItem } from './QuotaItem';
 import { MODEL_CONFIG, sortModels } from '../../config/modelConfig';
+import { getValidationBlockedStatusLabel } from './accountValidationStatus';
 
 interface AccountCardProps {
     account: Account;
@@ -38,6 +39,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
     const { t } = useTranslation();
     const { config, showAllQuotas } = useConfigStore();
     const isDisabled = Boolean(account.disabled);
+    const validationBlockedLabel = getValidationBlockedStatusLabel(account.validation_blocked_reason, t);
 
     // 自定义标签编辑状态
     const [isEditingLabel, setIsEditingLabel] = useState(false);
@@ -167,7 +169,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                             {account.validation_blocked && (
                                 <span className="px-1.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 text-[9px] font-bold flex items-center gap-1 shadow-sm border border-amber-200/50">
                                     <Clock className="w-2.5 h-2.5" />
-                                    {t('accounts.status.validation_required').toUpperCase()}
+                                    {validationBlockedLabel.toUpperCase()}
                                 </span>
                             )}
                             {/* 订阅类型徽章 */}
@@ -222,7 +224,7 @@ function AccountCard({ account, selected, onSelect, isCurrent: propIsCurrent, is
                         )}>
                             {account.validation_blocked ? <Clock className="w-4 h-4" /> : (isDisabled || account.proxy_disabled ? <Ban className="w-4 h-4" /> : <Lock className="w-4 h-4" />)}
                             <span className="text-[11px] font-bold">
-                                {account.validation_blocked ? t('accounts.status.validation_required') : (isDisabled ? t('accounts.status.disabled') : account.proxy_disabled ? t('accounts.status.proxy_disabled') : t('accounts.forbidden_msg'))}
+                                {account.validation_blocked ? validationBlockedLabel : (isDisabled ? t('accounts.status.disabled') : account.proxy_disabled ? t('accounts.status.proxy_disabled') : t('accounts.forbidden_msg'))}
                             </span>
                         </div>
                         <div className={cn(

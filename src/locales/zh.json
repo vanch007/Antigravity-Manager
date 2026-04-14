@@ -158,6 +158,8 @@
             "disabled": "账号已禁用",
             "proxy_disabled": "反代已禁用",
             "validation_required": "账号需验证",
+            "risk_controlled": "风控/限流",
+            "oauth_reauth_required": "授权异常",
             "violation_blocked": "由于违规被禁用"
         },
         "error_details": "错误详情",

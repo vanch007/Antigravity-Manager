@@ -342,14 +342,23 @@ pub async fn handle_generate(
                         let bytes = match item {
                             Some(Ok(b)) => b,
                             Some(Err(e)) => {
-                                error!("[Gemini-SSE] Connection error: {}", e);
+                                error!("[Gemini-SSE] Stream error: {}", e);
                                 let error_json = serde_json::json!({
-                                    "error": {
-                                        "message": format!("Stream error: {}", e),
-                                        "type": "stream_error"
-                                    }
+                                    "id": &s_id_for_stream,
+                                    "object": "chat.completion.chunk",
+                                    "model": &model_name_for_stream,
+                                    "choices": [
+                                        {
+                                            "index": 0,
+                                            "delta": {
+                                                "content": format!("\n[Stream Error] {}", e)
+                                            },
+                                            "finish_reason": "error"
+                                        }
+                                    ]
                                 });
-                                yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", error_json)));
+                                yield Ok::<Bytes, String>(Bytes::from(format!("data: {}\n\n", serde_json::to_string(&error_json).unwrap_or_default())));
+                                yield Ok::<Bytes, String>(Bytes::from("data: [DONE]\n\n"));
                                 break;
                             }
                             None => break,

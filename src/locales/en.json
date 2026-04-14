@@ -161,6 +161,8 @@
             "disabled": "Account Disabled",
             "proxy_disabled": "Proxy Disabled",
             "validation_required": "Verification Required",
+            "risk_controlled": "Risk / Rate Limited",
+            "oauth_reauth_required": "OAuth Re-auth Required",
             "violation_blocked": "Blocked due to Violation"
         },
         "error_details": "Error Details",

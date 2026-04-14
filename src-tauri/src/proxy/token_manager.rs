@@ -2403,7 +2403,9 @@ impl TokenManager {
                 Some(email_clone.clone()),
                 Some(project_id),
                 None, // session_id
-            );
+                true,
+            )
+            .with_oauth_client_key(token_info.oauth_client_key.clone());
 
             crate::modules::account::upsert_account(email_clone, None, token_data)
         })
