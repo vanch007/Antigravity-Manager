@@ -1769,7 +1769,7 @@ pub async fn handle_images_generations_internal(
     let model = body
         .get("model")
         .and_then(|v| v.as_str())
-        .unwrap_or("gemini-3-pro-image");
+        .unwrap_or("gemini-3.1-flash-image");
 
     let n = body.get("n").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
 
@@ -2068,7 +2068,7 @@ pub async fn handle_images_edits(
     let mut n = 1;
     let mut size = "1024x1024".to_string();
     let mut response_format = "b64_json".to_string();
-    let mut model = "gemini-3-pro-image".to_string();
+    let mut model = "gemini-3.1-flash-image".to_string();
     let mut aspect_ratio: Option<String> = None;
     let mut image_size_param: Option<String> = None;
     let mut style: Option<String> = None;
@@ -2246,7 +2246,7 @@ pub async fn handle_images_edits(
             for attempt in 0..max_attempts {
                 // 4.1 获取 Token
                 let (access_token, project_id, email, account_id, _wait_ms) = match token_manager
-                    .get_token("image_gen", attempt > 0, None, "gemini-3-pro-image")
+                    .get_token("image_gen", attempt > 0, None, "gemini-3.1-flash-image")
                     .await
                 {
                     Ok(t) => t,

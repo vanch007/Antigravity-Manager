@@ -78,6 +78,7 @@ static CLAUDE_TO_GEMINI: Lazy<HashMap<&'static str, &'static str>> = Lazy::new(|
     m.insert("gemini-3-pro", "gemini-3-pro-preview");
     m.insert("gemini-2.5-flash", "gemini-2.5-flash");
     m.insert("gemini-3-flash", "gemini-3-flash");
+    m.insert("gemini-3.1-flash-image", "gemini-3.1-flash-image");
     m.insert("gemini-3-pro-image", "gemini-3-pro-image");
 
     // [New] Unified Virtual ID for Background Tasks (Title, Summary, etc.)
@@ -169,16 +170,18 @@ pub async fn get_all_dynamic_models(
     model_ids.insert("gemini-3.1-pro-low".to_string());
     
     // [NEW] Issue #247: Dynamically generate all Image Gen Combinations
-    let base = "gemini-3-pro-image";
+    let image_bases = vec!["gemini-3.1-flash-image", "gemini-3-pro-image"];
     let resolutions = vec!["", "-2k", "-4k"];
     let ratios = vec!["", "-1x1", "-4x3", "-3x4", "-16x9", "-9x16", "-21x9"];
     
-    for res in resolutions {
-        for ratio in ratios.iter() {
-            let mut id = base.to_string();
-            id.push_str(res);
-            id.push_str(ratio);
-            model_ids.insert(id);
+    for base in &image_bases {
+        for res in &resolutions {
+            for ratio in ratios.iter() {
+                let mut id = base.to_string();
+                id.push_str(res);
+                id.push_str(ratio);
+                model_ids.insert(id);
+            }
         }
     }
 

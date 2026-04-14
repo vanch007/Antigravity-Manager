@@ -26,7 +26,11 @@ pub fn resolve_request_config(
     body: Option<&Value>,  // [NEW] Request body for Gemini native imageConfig
 ) -> RequestConfig {
     // 1. Image Generation Check (Priority)
-    if mapped_model.starts_with("gemini-3-pro-image") {
+    // [FIX] Support both gemini-3-pro-image AND gemini-3.1-flash-image (and future image models)
+    if mapped_model.starts_with("gemini-3-pro-image")
+        || mapped_model.starts_with("gemini-3.1-flash-image")
+        || (mapped_model.starts_with("gemini-") && mapped_model.contains("-image"))
+    {
         // [RESOLVE #1694] Improved priority logic:
         // 1. First parse inferred config from model suffix and OpenAI parameters
         let (mut inferred_config, parsed_base_model) =
@@ -111,6 +115,7 @@ pub fn resolve_request_config(
     // Note: gemini-3-pro-preview / gemini-3.1-pro-preview are intentionally NOT forced
     // to *-high here; dynamic runtime rewrite is handled after account selection.
     final_model = match final_model.as_str() {
+        "gemini-3.1-flash-image-preview" => "gemini-3.1-flash-image".to_string(),
         "gemini-3-pro-image-preview" => "gemini-3-pro-image".to_string(),
         "gemini-3-flash-preview" => "gemini-3-flash".to_string(),
         _ => final_model,

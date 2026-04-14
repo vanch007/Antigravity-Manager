@@ -123,6 +123,17 @@ fn build_model_catalog() -> Vec<ModelDef> {
             variant_type: Some(VariantType::Gemini3Flash),
         },
         ModelDef {
+            id: "gemini-3.1-flash-image",
+            name: "Gemini 3.1 Flash Image",
+            context_limit: 1_048_576,
+            output_limit: 65_535,
+            input_modalities: &["text", "image", "pdf"],
+            output_modalities: &["text", "image"],
+            reasoning: false,
+            variant_type: None,
+        },
+        // Backward-compatible alias
+        ModelDef {
             id: "gemini-3-pro-image",
             name: "Gemini 3 Pro Image",
             context_limit: 1_048_576,
@@ -1620,6 +1631,7 @@ const ANTIGRAVITY_MODEL_IDS: &[&str] = &[
     "gemini-3-pro-high",
     "gemini-3-pro-low",
     "gemini-3-flash",
+    "gemini-3.1-flash-image",
     "gemini-3-pro-image",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
